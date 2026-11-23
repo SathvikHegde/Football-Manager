@@ -20,5 +20,10 @@ set_target_properties(fm_tests PROPERTIES
     CXX_EXTENSIONS OFF
 )
 
+target_compile_options(fm_tests PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX /permissive- /utf-8 /Zc:__cplusplus>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic -Werror>
+)
+
 add_test(NAME fm_tests COMMAND fm_tests)
 

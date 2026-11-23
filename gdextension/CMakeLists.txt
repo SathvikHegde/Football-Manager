@@ -1,5 +1,7 @@
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/godot-cpp/CMakeLists.txt")
-    set(GODOTCPP_API_VERSION "4.7" CACHE STRING "" FORCE)
+    set(GODOTCPP_API_VERSION "4.7" CACHE STRING "Target Godot API version")
+    set(GODOTCPP_USE_STATIC_CPP OFF CACHE BOOL "Use shared CRT (/MD) matching standard CMake targets" FORCE)
+    set(GODOTCPP_DEBUG_CRT ON CACHE BOOL "Use debug CRT (/MDd) in Debug mode" FORCE)
     add_subdirectory(godot-cpp)
 
     add_library(fm_gdextension SHARED
@@ -24,12 +26,11 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/godot-cpp/CMakeLists.txt")
         CXX_STANDARD 20
         CXX_STANDARD_REQUIRED ON
         CXX_EXTENSIONS OFF
-        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/godot_client/bin"
-        RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/godot_client/bin"
-        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/godot_client/bin"
-        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/godot_client/bin"
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../godot_client/bin"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_CURRENT_SOURCE_DIR}/../godot_client/bin"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_CURRENT_SOURCE_DIR}/../godot_client/bin"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../godot_client/bin"
     )
 else()
-    message(STATUS "godot-cpp not found in gdextension/godot-cpp. fm_gdextension target will be skipped until godot-cpp submodule is added.")
+    message(STATUS "godot-cpp not found in gdextension/godot-cpp. fm_gdextension target will be skipped until godot-cpp submodule is initialized.")
 endif()
-

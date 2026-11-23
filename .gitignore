@@ -1,5 +1,6 @@
-# Visual Studio & VS Code
+# Visual Studio, VS Code, and IDE files
 .vs/
+.vscode/
 *.user
 *.suo
 out/

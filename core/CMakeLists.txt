@@ -39,3 +39,8 @@ set_target_properties(fm_core PROPERTIES
     CXX_EXTENSIONS OFF
 )
 
+target_compile_options(fm_core PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX /permissive- /utf-8 /Zc:__cplusplus>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic -Werror>
+)
+

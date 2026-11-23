@@ -6,13 +6,14 @@ target_link_libraries(fm_sim_cli PRIVATE
     fm_core
 )
 
-if(MSVC)
-    target_compile_options(fm_sim_cli PRIVATE /wd4100)
-endif()
-
 set_target_properties(fm_sim_cli PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF
+)
+
+target_compile_options(fm_sim_cli PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX /permissive- /utf-8 /Zc:__cplusplus /wd4100>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -Wpedantic -Werror>
 )
 
