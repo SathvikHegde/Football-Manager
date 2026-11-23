@@ -1,0 +1,42 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 20,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "default",
+            "displayName": "MSVC x64 (Ninja)",
+            "description": "Configure using MSVC, Ninja, and Python in C:/Programs/Python",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "Python3_EXECUTABLE": "C:/Programs/Python/python.exe",
+                "CMAKE_MSVC_DEBUG_INFORMATION_FORMAT": "Embedded"
+            },
+            "environment": {
+                "_CL_": "/Z7",
+                "PATH": "C:/Programs/Python;C:/Program Files/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin;C:/Program Files/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja;$penv{PATH}"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "default",
+            "configurePreset": "default"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "default",
+            "configurePreset": "default",
+            "output": {
+                "outputOnFailure": true
+            }
+        }
+    ]
+}
+

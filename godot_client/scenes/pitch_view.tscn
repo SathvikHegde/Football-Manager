@@ -1,0 +1,7 @@
+[gd_scene load_steps=2 format=3 uid="uid://c7w3pitchview"]
+
+[ext_resource type="Script" path="res://scripts/pitch_renderer.gd" id="1_pitch"]
+
+[node name="PitchView" type="Node2D"]
+script = ExtResource("1_pitch")
+

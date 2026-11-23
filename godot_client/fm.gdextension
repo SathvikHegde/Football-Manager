@@ -1,0 +1,13 @@
+[configuration]
+entry_symbol = "fm_library_init"
+compatibility_minimum = "4.2"
+reloadable = true
+
+[libraries]
+windows.debug.x86_64 = "res://bin/fm_gdextension.dll"
+windows.release.x86_64 = "res://bin/fm_gdextension.dll"
+linux.debug.x86_64 = "res://bin/libfm_gdextension.so"
+linux.release.x86_64 = "res://bin/libfm_gdextension.so"
+macos.debug = "res://bin/libfm_gdextension.dylib"
+macos.release = "res://bin/libfm_gdextension.dylib"
+

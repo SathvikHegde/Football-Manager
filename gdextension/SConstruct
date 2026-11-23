@@ -1,0 +1,30 @@
+#!/usr/bin/env python
+import os
+import sys
+
+env = SConscript("godot-cpp/SConstruct")
+
+# Additional include paths
+env.Append(CPPPATH=["include", "../core/include"])
+
+# Source files
+sources = [
+    "src/register_types.cpp",
+    "src/match_engine_bridge.cpp"
+]
+
+# Static core simulation library
+core_lib = env.StaticLibrary(
+    target="../core/fm_core",
+    source=Glob("../core/src/**/*.cpp")
+)
+
+# Shared GDExtension library
+target_path = "../godot_client/bin/fm_gdextension" + env["SHLIBSUFFIX"]
+library = env.SharedLibrary(
+    target=target_path,
+    source=sources + [core_lib]
+)
+
+Default(library)
+

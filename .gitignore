@@ -1,1 +1,41 @@
+# Visual Studio & VS Code
 .vs/
+*.user
+*.suo
+out/
+
+# Build artifacts
+build/
+bin/
+*.obj
+*.exe
+*.dll
+*.lib
+*.pdb
+*.exp
+*.ilk
+
+# Godot
+.godot/
+godot_client/.godot/
+godot_client/bin/*.dll
+godot_client/bin/*.so
+godot_client/bin/*.dylib
+godot_client/bin/*.exp
+godot_client/bin/*.lib
+godot_client/bin/*.pdb
+
+# Godot Editor Artifacts
+export_templates/
+feature_profiles/
+script_templates/
+text_editor_themes/
+godot_client/export_templates/
+godot_client/feature_profiles/
+godot_client/script_templates/
+godot_client/text_editor_themes/
+
+# SCons / Python
+.sconsign.dblite
+__pycache__/
+*.pyc
