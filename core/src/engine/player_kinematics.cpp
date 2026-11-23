@@ -21,6 +21,7 @@ void step(PlayerAgent& player, const Vec2& target_pos, float dt) {
     float dist = to_target.length();
 
     if (dist < 0.05f) {
+        player.position = target_pos;
         player.velocity = Vec2{0.0f, 0.0f};
         return;
     }
@@ -41,14 +42,20 @@ void step(PlayerAgent& player, const Vec2& target_pos, float dt) {
     player.velocity = player.velocity + applied_accel * dt;
     player.position = player.position + player.velocity * dt;
 
-    if (player.velocity.length_sq() > 0.01f) {
-        float target_angle = std::atan2(player.velocity.y, player.velocity.x);
+    Vec2 facing_target_vec = (target_dir.length_sq() > 0.01f) ? target_dir : player.velocity;
+    if (facing_target_vec.length_sq() > 0.01f) {
+        float target_angle = std::atan2(facing_target_vec.y, facing_target_vec.x);
         float angle_diff = target_angle - player.facing_rad;
-        while (angle_diff > 3.14159265f) angle_diff -= 6.2831853f;
-        while (angle_diff < -3.14159265f) angle_diff += 6.2831853f;
+        constexpr float PI = 3.14159265358979323846f;
+        constexpr float TWO_PI = 2.0f * PI;
+        while (angle_diff > PI) angle_diff -= TWO_PI;
+        while (angle_diff < -PI) angle_diff += TWO_PI;
 
         float max_turn = MAX_TURN_RATE * dt;
         player.facing_rad += std::clamp(angle_diff, -max_turn, max_turn);
+
+        while (player.facing_rad > PI) player.facing_rad -= TWO_PI;
+        while (player.facing_rad < -PI) player.facing_rad += TWO_PI;
     }
 }
 

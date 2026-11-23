@@ -10,6 +10,7 @@ void MatchEngineBridge::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_engine_version"), &MatchEngineBridge::get_engine_version);
     ClassDB::bind_method(D_METHOD("initialize_match", "seed"), &MatchEngineBridge::initialize_match);
     ClassDB::bind_method(D_METHOD("simulate_full_match"), &MatchEngineBridge::simulate_full_match);
+    ClassDB::bind_method(D_METHOD("run_sandbox_demo"), &MatchEngineBridge::run_sandbox_demo);
     ClassDB::bind_method(D_METHOD("get_frame_data", "tick"), &MatchEngineBridge::get_frame_data);
     ClassDB::bind_method(D_METHOD("get_match_metadata"), &MatchEngineBridge::get_match_metadata);
     ClassDB::bind_method(D_METHOD("get_total_ticks"), &MatchEngineBridge::get_total_ticks);
@@ -19,6 +20,7 @@ void MatchEngineBridge::_bind_methods() {
 
 MatchEngineBridge::MatchEngineBridge() {
     initialize_match(initial_seed_);
+    run_sandbox_demo();
 }
 
 MatchEngineBridge::~MatchEngineBridge() = default;
@@ -49,6 +51,10 @@ void MatchEngineBridge::simulate_full_match() {
         simulator_.step_tick(current_state_);
         recording_.add_frame(fm::FrameSnapshot::from_state(current_state_));
     }
+}
+
+void MatchEngineBridge::run_sandbox_demo() {
+    simulator_.run_sandbox_demo(current_state_, recording_, 1000);
 }
 
 PackedFloat32Array MatchEngineBridge::get_frame_data(int tick) const {

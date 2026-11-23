@@ -34,6 +34,7 @@ public:
 
     void initialize_match(uint64_t seed);
     void simulate_full_match();
+    void run_sandbox_demo();
 
     // Low-level buffer access for Godot visualization
     [[nodiscard]] PackedFloat32Array get_frame_data(int tick) const;
