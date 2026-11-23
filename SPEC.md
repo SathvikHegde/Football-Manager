@@ -25,7 +25,7 @@ The system architecture is strictly decoupled into five functional layers, separ
 | **Headless Calibration CLI** | `fm_sim_cli` (C++20 Executable) | Standalone console application linking `fm_core`. Executes batch simulations (100–1,000 matches) headlessly to output aggregate statistical telemetry (CSV and console reports). |
 | **Automated Test Suite** | `fm_tests` (C++20 Catch2 / GTest) | Automated unit testing framework validating determinism, physics boundaries, snapshot rollback equivalence, and match state rules. |
 | **Godot 4 Bridge** | `fm_gdextension` (C++20 Dynamic Library) | Thin FFI wrapper built using Godot 4 **GDExtension** (`godot-cpp`). Links `fm_core` and exposes the `MatchEngineBridge` object to GDScript. |
-| **Frontend Client** | `godot_client` (Godot 4.4+ Engine Project) | Presentation layer implementing 2D top-down pitch visualizer (classic FM dots), ball height/shadow rendering, timeline playback controls, tactical panels, and commentary feeds. |
+| **Frontend Client** | `godot_client` (Godot 4.7+ Engine Project) | Presentation layer implementing 2D top-down pitch visualizer (classic FM dots), ball height/shadow rendering, timeline playback controls, tactical panels, and commentary feeds. |
 
 ---
 
@@ -609,13 +609,13 @@ Timeline: 0m ------------- 45m -------- 47m (User Edits Tactics) -------- 90m
 
 1. Construct complete repository tree layout.  
 2. Configure root `CMakeLists.txt` compiling `fm_core` as a static library with target C++20 standard. Include basic C++ test framework (Catch2 or GTest).  
-3. Set up GDExtension build environment using `godot-cpp` targeting Godot 4.4+.  
+3. Set up GDExtension build environment using `godot-cpp` targeting Godot 4.7+.  
 4. Create `MatchEngineBridge` class exposing `ping()` returning `"fm_core C++20 engine ready"`.
 
 ### **Definition of Done (DoD)**
 
 * `cmake --build build && ctest` succeeds cleanly with 0 warnings.  
-* Godot 4.4 editor opens `godot_client/`, loads `fm.gdextension`, and runs a test scene printing the engine version string to the console output.
+* Godot 4.7 editor opens `godot_client/`, loads `fm.gdextension`, and runs a test scene printing the engine version string to the console output.
 
 ---
 
