@@ -4,7 +4,7 @@
 
 - **C++20 Compiler:** MSVC (Visual Studio 2022 / 2026), GCC 11+, or Clang 16+
 - **CMake:** Version 3.20 or newer
-- **Ninja:** Build generator
+- **Ninja:** Build generator (recommended)
 - **Python 3:** Version 3.4+ in system PATH (required by godot-cpp)
 - **Git:** Required for submodule management
 - **Godot Engine:** Version 4.7+ (to run the 2D Pitch Viewer frontend client)
@@ -32,20 +32,17 @@ git submodule update --init --recursive
 
 ### Command Line (CMake Presets)
 
-Using MSVC Developer Command Prompt or calling `vcvars64.bat`:
-
 ```powershell
-# Configure and build all targets (fm_core, fm_tests, fm_sim_cli, fm_gdextension)
-cmd.exe /c "call `"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat`" && cmake --preset windows-debug && cmake --build --preset windows-debug"
+# Configure
+cmake --preset windows-debug
+
+# Build all targets (fm_core, fm_tests, fm_sim_cli, fm_gdextension)
+cmake --build --preset windows-debug
 ```
 
-For Release build:
+*(For Release, replace `windows-debug` with `windows-release`)*
 
-```powershell
-cmd.exe /c "call `"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat`" && cmake --preset windows-release && cmake --build --preset windows-release"
-```
-
-The compiled GDExtension library (`fm_gdextension.dll`) is automatically placed into `godot_client/bin/`.
+The compiled GDExtension library (`fm_gdextension.dll` / `.so` / `.dylib`) is automatically placed into `godot_client/bin/`.
 
 ### Visual Studio IDE
 
@@ -67,7 +64,7 @@ ctest --preset windows-debug
 Or run the test executable directly:
 
 ```powershell
-.\build\debug\tests\fm_tests.exe
+./build/debug/tests/fm_tests
 ```
 
 ---
@@ -77,7 +74,7 @@ Or run the test executable directly:
 Execute the headless simulation CLI:
 
 ```powershell
-.\build\debug\cli_harness\fm_sim_cli.exe
+./build/debug/cli_harness/fm_sim_cli
 ```
 
 ---
@@ -89,15 +86,15 @@ Execute the headless simulation CLI:
 Verify that GDExtension loads and runs the 1,000-tick sandbox without GUI:
 
 ```powershell
-& "C:\Programs\Godot\Godot_v4.7.2-stable_win64_console.exe" --headless --path godot_client --quit-after 30
+godot --headless --path godot_client --quit-after 30
 ```
 
 ### Interactive 2D Pitch Viewer
 
-Launch the 2D viewer window:
+Launch the 2D viewer:
 
 ```powershell
-& "C:\Programs\Godot\Godot_v4.7.2-stable_win64_console.exe" --path godot_client
+godot --path godot_client
 ```
 
 ### Viewer Playback Controls
@@ -107,5 +104,5 @@ Launch the 2D viewer window:
 | **`Space`** or **Play/Pause Button** | Toggle timeline playback |
 | **`Left Arrow`** / **`Right Arrow`** or **⏮ / ⏭ Buttons** | Step back / forward by single frame |
 | **`R`** or **↺ Restart Button** | Reset playback to frame 0 |
-| **`1`, `2`, `3`, `4`** or **Speed Dropdown** | Set playback speed to $1\times, 2\times, 4\times, 8\times$ |
-| **Scrub Slider (`HSlider`)** | Click or drag to jump to any tick ($0..999$) |
+| **`1`, `2`, `3`, `4`** or **Speed Dropdown** | Set playback speed to 1x, 2x, 4x, 8x |
+| **Scrub Slider (`HSlider`)** | Click or drag to jump to any tick (0..999) |
