@@ -4,6 +4,7 @@
 #include "fm/engine/rules.hpp"
 #include "fm/engine/pitch.hpp"
 #include "fm/model/tactics.hpp"
+#include "fm/model/team.hpp"
 #include "fm/ai/team_phase.hpp"
 #include "fm/ai/tactical_anchors.hpp"
 #include "fm/ai/utility_ai.hpp"
@@ -126,6 +127,15 @@ void MatchSimulator::initialize_match(MatchState& state,
                                       uint64_t seed,
                                       FormationId home_formation,
                                       FormationId away_formation) {
+    initialize_match(state, seed, home_formation, away_formation, 12, 12);
+}
+
+void MatchSimulator::initialize_match(MatchState& state,
+                                      uint64_t seed,
+                                      FormationId home_formation,
+                                      FormationId away_formation,
+                                      uint8_t home_rating,
+                                      uint8_t away_rating) {
     recent_events_.clear();
     state = MatchState{};
     state.rng = RngState(seed);
@@ -134,49 +144,19 @@ void MatchSimulator::initialize_match(MatchState& state,
     state.home_tactics = get_default_tactics(home_formation);
     state.away_tactics = get_default_tactics(away_formation);
 
+    const uint8_t clamped_home = std::clamp<uint8_t>(home_rating, 1, 20);
+    const uint8_t clamped_away = std::clamp<uint8_t>(away_rating, 1, 20);
+
     for (std::size_t i = 0; i < 22; ++i) {
         auto& p = state.players[i];
         p.slot_index = static_cast<uint8_t>(i);
         p.player_id = static_cast<uint32_t>(100 + i);
         p.team_id = (i < 11) ? 0 : 1;
         const auto& tactics = (p.team_id == 0) ? state.home_tactics : state.away_tactics;
+        const uint8_t team_rating = (p.team_id == 0) ? clamped_home : clamped_away;
         p.role = get_formation_role(tactics.formation, static_cast<uint8_t>(i % 11));
         p.stamina_pct = 1.0f;
-
-        // Assign balanced role-appropriate baseline attributes (1..20 scale around 10..14)
-        p.attrs = PlayerAttributes{};
-        if (p.role == RoleId::Goalkeeper) {
-            p.attrs.positioning = 13;
-            p.attrs.acceleration = 12;
-            p.attrs.passing = 11;
-            p.attrs.decisions = 12;
-        } else if (p.role == RoleId::CenterBack) {
-            p.attrs.tackling = 13;
-            p.attrs.positioning = 13;
-            p.attrs.pace = 10;
-            p.attrs.passing = 10;
-            p.attrs.shooting = 6;
-        } else if (p.role == RoleId::FullBack) {
-            p.attrs.pace = 12;
-            p.attrs.stamina = 13;
-            p.attrs.tackling = 12;
-            p.attrs.passing = 11;
-        } else if (p.role == RoleId::Midfielder) {
-            p.attrs.passing = 13;
-            p.attrs.vision = 13;
-            p.attrs.decisions = 12;
-            p.attrs.stamina = 12;
-        } else if (p.role == RoleId::Winger) {
-            p.attrs.pace = 14;
-            p.attrs.acceleration = 13;
-            p.attrs.dribbling = 13;
-            p.attrs.passing = 11;
-        } else if (p.role == RoleId::Forward) {
-            p.attrs.shooting = 14;
-            p.attrs.dribbling = 12;
-            p.attrs.pace = 13;
-            p.attrs.decisions = 12;
-        }
+        p.attrs = make_role_attributes(p.role, team_rating);
     }
 
     MatchRules::setup_kickoff(state, 0);
@@ -298,8 +278,8 @@ void MatchSimulator::step_tick(MatchState& state) {
              p.current_action != ActionType::Shield);
         const bool possession_interrupt = (state.possession_change_tick == state.tick);
         const bool loose_near_interrupt = (state.ball.owner_slot == -1) &&
-            ((p.position - ball_2d).length_sq() < 100.0f) &&
-            (p.current_action != ActionType::Intercept);
+            (((p.position - ball_2d).length_sq() < 100.0f && p.current_action != ActionType::Intercept) ||
+             (state.pass_target_slot == static_cast<int8_t>(i) && p.current_action != ActionType::Intercept));
         const bool cadence_tick = ((state.tick + i) % 4 == 0);
 
         if (cadence_tick || owner_needs_decision || possession_interrupt || loose_near_interrupt) {
@@ -320,13 +300,48 @@ void MatchSimulator::step_tick(MatchState& state) {
     // Step 3D ball physics (only moves ball when owner_slot < 0)
     BallPhysics::step(state.ball, Pitch::DT);
 
-    // Goalkeeper shot reaction & dive intercept
+    // Goalkeeper shot reaction & dive intercept (runs before next tick's goal-line evaluation)
     if (state.shot_active) {
         if (!AI::resolve_shot_intercept(state, 0, recent_events_)) {
             AI::resolve_shot_intercept(state, 11, recent_events_);
         }
-        if (state.ball.velocity.length_sq() < 9.0f) {
+        // If ball still crossed goal line and was not saved, clamp inside net wait? No, Layer 1 handles actual goals,
+        // unless GK saved it above (which stops state.shot_active & redirects ball back into field).
+        if (state.ball.velocity.length_sq() < 1.5f) {
             state.shot_active = false;
+        }
+    }
+
+    // Outfield defender shot blocking (for shots in flight past initial kick)
+    if (state.shot_active && state.ball.owner_slot == -1 && state.ball.position.z < 1.9f &&
+        state.shot_shooter_slot >= 0 && state.shot_shooter_slot < 22) {
+        const uint8_t shooter_team = state.players[static_cast<std::size_t>(state.shot_shooter_slot)].team_id;
+        const Vec2 b2{state.ball.position.x, state.ball.position.y};
+        const int8_t opp_start = (shooter_team == 0) ? 12 : 1; // Outfield defenders only
+        for (int8_t d = opp_start; d < opp_start + 10; ++d) {
+            auto& def = state.players[static_cast<std::size_t>(d)];
+            if (def.action_cooldown_ticks > 0) continue;
+            if ((def.position - b2).length_sq() < 0.72f) { // ~0.85m block radius
+                const float block_dir_x = Pitch::attack_direction(def.team_id, state.half);
+                const float deflect_y = (state.rng.next_float() - 0.5f) * 8.0f;
+                state.ball.velocity = Vec3{block_dir_x * (4.0f + 3.0f * state.rng.next_float()), deflect_y, 1.4f};
+                state.ball.last_touch_slot = d;
+                state.ball.last_touch_team = static_cast<int8_t>(def.team_id);
+                state.ball.claim_lock_ticks = 2;
+                state.shot_active = false;
+                state.pass_target_slot = -1;
+                state.possession_change_tick = state.tick;
+                def.action_cooldown_ticks = 4;
+
+                MatchEvent block_evt{};
+                block_evt.tick = state.tick;
+                block_evt.type = EventType::TackleWon;
+                block_evt.primary_slot = d;
+                block_evt.secondary_slot = state.shot_shooter_slot;
+                block_evt.location = def.position;
+                recent_events_.push_back(block_evt);
+                break;
+            }
         }
     }
 
@@ -358,8 +373,8 @@ void MatchSimulator::step_tick(MatchState& state) {
             if (def.action_cooldown_ticks > 0) continue;
             if ((def.position - carrier.position).length() < 1.2f) {
                 const float p_success = std::clamp(
-                    0.50f + 0.35f * def.attrs.norm(def.attrs.tackling) - 0.30f * carrier.attrs.norm(carrier.attrs.dribbling),
-                    0.10f, 0.90f);
+                    0.50f + 0.92f * def.attrs.norm(def.attrs.tackling) - 0.86f * carrier.attrs.norm(carrier.attrs.dribbling),
+                    0.06f, 0.94f);
 
                 if (state.rng.next_float() < p_success) {
                     Vec2 deflect_dir = Vec2{std::cos(def.facing_rad), std::sin(def.facing_rad)};
@@ -386,7 +401,7 @@ void MatchSimulator::step_tick(MatchState& state) {
                     tackle_evt.location = carrier.position;
                     recent_events_.push_back(tackle_evt);
                 } else {
-                    def.action_cooldown_ticks = 12; // 0.6s recover
+                    def.action_cooldown_ticks = 14; // 0.7s recover
                     def.current_action = ActionType::Idle;
                 }
                 break; // One tackle contest resolved per tick
@@ -405,7 +420,21 @@ void MatchSimulator::step_tick(MatchState& state) {
             if (p.action_cooldown_ticks > 0) continue;
 
             const bool gk_in_box = (p.role == RoleId::Goalkeeper) && Pitch::is_in_own_penalty_area(b2, p.team_id, state.half);
-            const float control_radius = gk_in_box ? 1.25f : 0.90f;
+            const bool is_intercept_attempt = (state.ball.last_touch_team >= 0 &&
+                                               state.ball.last_touch_team != static_cast<int8_t>(p.team_id));
+            const bool is_intended_receiver = (!state.shot_active &&
+                                               state.pass_target_slot == static_cast<int8_t>(i) &&
+                                               state.ball.last_touch_team == static_cast<int8_t>(p.team_id));
+            float control_radius = is_intended_receiver
+                ? (1.20f + 0.42f * p.attrs.norm(p.attrs.dribbling))
+                : (0.98f + 0.34f * p.attrs.norm(p.attrs.dribbling));
+            if (gk_in_box) {
+                control_radius = 1.25f;
+            } else if (is_intercept_attempt) {
+                if (state.ball.position.z > 1.40f) continue;
+                control_radius = 0.20f + 0.52f * p.attrs.norm(p.attrs.tackling);
+            }
+
             const float d2 = (p.position - b2).length_sq();
             if (d2 < control_radius * control_radius && d2 < best_dist_sq) {
                 best_dist_sq = d2;
@@ -443,7 +472,26 @@ void MatchSimulator::step_tick(MatchState& state) {
             state.ball.velocity = Vec3{0.0f, 0.0f, 0.0f};
             state.ball.position.z = 0.0f;
             state.shot_active = false;
+            state.pass_target_slot = -1;
             state.stuck_ball_ticks = 0;
+
+            // Natural first touch: if not under immediate press, carry briefly before next decision
+            if (p.role != RoleId::Goalkeeper) {
+                const float adir = Pitch::attack_direction(p.team_id, state.half);
+                const int8_t opp_start = (p.team_id == 0) ? 11 : 0;
+                float min_opp_sq = 1e9f;
+                for (int8_t o = opp_start; o < opp_start + 11; ++o) {
+                    const float od2 = (state.players[static_cast<std::size_t>(o)].position - p.position).length_sq();
+                    if (od2 < min_opp_sq) min_opp_sq = od2;
+                }
+                if (min_opp_sq > 6.25f) {
+                    p.current_action = ActionType::Dribble;
+                    p.move_target = Vec2{
+                        std::clamp(p.position.x + adir * 4.0f, -Pitch::HALF_LENGTH + 2.5f, Pitch::HALF_LENGTH - 2.5f),
+                        p.position.y
+                    };
+                }
+            }
             if (state.last_possessing_team != static_cast<int8_t>(p.team_id)) {
                 state.last_possessing_team = static_cast<int8_t>(p.team_id);
                 state.possession_change_tick = state.tick;
@@ -507,6 +555,26 @@ void MatchSimulator::simulate_match(MatchState& state,
     recording.clear();
     checkpoints.clear();
     resume_simulation(state, recording, checkpoints, max_ticks);
+}
+
+void MatchSimulator::simulate_headless(MatchState& state,
+                                       MatchStats& stats,
+                                       uint32_t max_ticks) {
+    stats.home_formation = state.home_tactics.formation;
+    stats.away_formation = state.away_tactics.formation;
+    stats.total_ticks = 0;
+    stats.open_play_ticks = 0;
+    stats.home = TeamMatchStats{};
+    stats.away = TeamMatchStats{};
+
+    while (state.tick < max_ticks && state.play_state != PlayState::FullTime) {
+        step_tick(state);
+        stats.accumulate_tick(state);
+        if (!recent_events_.empty()) {
+            stats.accumulate_events(recent_events_);
+        }
+    }
+    stats.finalize(state);
 }
 
 void MatchSimulator::resume_simulation(MatchState& state,

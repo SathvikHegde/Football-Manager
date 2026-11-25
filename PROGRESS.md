@@ -1,23 +1,36 @@
 # Football Manager - Build & Stage Progress
 
-- **Current Status:** Stage 3 COMPLETE. Stage 4 READY. (Engine v0.3.0-stage3)
+- **Current Status:** Stage 4 COMPLETE. (Engine v0.4.0-stage4)
 - **Godot Setup:** Godot 4.7.2 (`C:\Programs\Godot\Godot_v4.7.2-stable_win64_console.exe`).
 - **godot-cpp:** `gdextension/godot-cpp` with `GODOTCPP_USE_STATIC_CPP=OFF` (`/MD`/`/MDd`).
 
 ### Working Commands
 ```powershell
-# Build all targets (fm_core, fm_tests, fm_sim_cli, fm_gdextension)
+# Configure & Build all targets (fm_core, fm_tests, fm_sim_cli, fm_gdextension) in Release & Debug
+cmd.exe /c "call `"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat`" && cmake --preset windows-release -DPython3_EXECUTABLE=C:/Programs/Python/python.exe && cmake --build --preset windows-release"
 cmd.exe /c "call `"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat`" && cmake --preset windows-debug && cmake --build --preset windows-debug"
 
-# Run unit tests (30/30 passed, 35,624,560 assertions) & CLI (90m match, 108,000 ticks)
+# Run automated verification suites (34/34 passed; Release runs full 200-match equal & +4 calibration DoD in ~16.3s)
+cmd.exe /c "call `"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat`" && ctest --preset windows-release --output-on-failure"
 cmd.exe /c "call `"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat`" && ctest --preset windows-debug --output-on-failure"
-.\build\debug\tests\fm_tests.exe
-.\build\debug\cli_harness\fm_sim_cli.exe 3735928559
+
+# Run Headless Multi-Threaded Calibration CLI (Stage 4 DoD: 200 matches in ~5.0-7.1s across 8 threads)
+.\build\release\cli_harness\fm_sim_cli.exe --matches 200 --threads 8 --home-rating 12 --away-rating 12 --out build\release\report.csv --validate
+.\build\release\cli_harness\fm_sim_cli.exe --matches 200 --threads 8 --home-rating 16 --away-rating 12 --out build\release\report_lead4.csv --validate
+.\build\release\cli_harness\fm_sim_cli.exe 3735928559
 
 # Run Godot client verification (headless) / Launch 2D Match Viewer (interactive)
 & "C:\Programs\Godot\Godot_v4.7.2-stable_win64_console.exe" --headless --path godot_client --quit-after 30
 & "C:\Programs\Godot\Godot_v4.7.2-stable_win64_console.exe" --path godot_client
 ```
+
+### Stage 4 Summary
+- **Headless Telemetry & Team Rating Contracts (`core/`):** Added `MatchStats` / `TeamMatchStats` and `MatchSimulator::simulate_headless(...)` in `fm/engine/match_stats.hpp` & `fm/engine/match_simulator.hpp` for zero-snapshot-allocation 90-minute match telemetry, plus `make_role_attributes` and `apply_team_rating` in `fm/model/team.hpp` (`core/src/model/team.cpp`).
+- **Multi-Threaded Calibration CLI (`cli_harness/`):** Implemented `BatchConfig`, `BatchAggregate`, `run_headless_batch` (`std::thread` + atomic work queue + SplitMix64 seed derivation), `write_batch_csv`, `print_batch_summary`, and `--validate` band checking in `cli_harness/batch_runner.hpp`, `cli_harness/batch_runner.cpp`, and `cli_harness/main.cpp` (`--matches`, `--threads`, `--home-rating`, `--away-rating`, `--home-formation`, `--away-formation`, `--mix-formations`, `--seed`, `--out`, `--validate`, plus legacy single-seed positional mode).
+- **Utility AI, Execution & Goalkeeper Calibration (`core/src/ai/`, `core/src/engine/`):** Added `pass_target_slot` receiver tracking, drag-aware goal-plane shot prediction (`predict_goal_plane_arrival`), defender shot blocking, restart lane clearance checks, passing lane/loft/dispersion tuning, and goalkeeper catch/parry/reach calibration:
+  - Equal Teams (`12 vs 12`, 200 matches, 8 threads, ~5.38s): `2.77` goals/match (`2.4-3.0`), `23.74` shots/match (`20-28`), `35.5%` SoT (`30-42%`), `83.8%` pass completion (`78-86%`), `50.1%` possession (`48-52%`).
+  - `+4` Attribute Lead (`16 vs 12`, 200 matches, 8 threads, ~5.00-7.08s): `3.52` goals/match (`3.2-4.1`), `87.0%` win rate (`>65%`), `27.45` shots/match (`24-32`), `42.4%` SoT (`35-48%`), `83.1%` pass completion (`82-89%`), `59.0%` possession (`58-66%`).
+- **Automated Verification (`tests/`):** Added `tests/test_calibration.cpp` validating role specialization/monotonicity, bit-identical equivalence between `simulate_headless` and `simulate_match`, thread-count-independent batch determinism (1 vs 8 threads), and full Stage 4 200-match calibration & `<30s` throughput assertions.
 
 ### Stage 3 Summary
 - **Checkpointed Pre-Simulation & Rollback Engine (`core/`):** Added `MatchSimulator::simulate_match(..., CheckpointManager&)`, `resume_simulation(...)`, `rollback_to_tick(...)`, and `rollback_and_resimulate(...)`, capturing 90 full `MatchState` snapshots (every `1,200` ticks) plus `TacticalHistoryEntry` logs for deterministic mid-checkpoint and multi-edit rollbacks.
@@ -35,4 +48,4 @@ cmd.exe /c "call `"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxi
 
 ### Deviations from SPEC.md
 1. **Testing Harness:** Catch2-compatible C++20 runner (`tests/test_framework.hpp`) for 100% offline builds.
-2. **MSVC Debug Format:** Used `/Z7` embedded debug info to avoid background `mspdbsrv.exe` server locks.
+2. **MSVC Debug Format:** Used `/Z7` embedded debug info across Debug & Release presets to avoid background `mspdbsrv.exe` server locks.

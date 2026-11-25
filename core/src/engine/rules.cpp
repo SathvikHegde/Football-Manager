@@ -39,6 +39,7 @@ void MatchRules::setup_kickoff(MatchState& state, uint8_t kicking_team) {
     state.ball.owner_slot = -1;
     state.ball.claim_lock_ticks = 0;
     state.shot_active = false;
+    state.pass_target_slot = -1;
     state.stuck_ball_ticks = 0;
 
     int8_t taker_slot = (kicking_team == 0) ? 9 : 20;
@@ -114,15 +115,22 @@ void MatchRules::execute_restart(MatchState& state, std::vector<MatchEvent>& eve
         float d = (mate.position - ball_2d).length();
         if (d < 4.0f || d > 45.0f) continue;
 
-        // Check nearest opponent to candidate receiver
+        // Check nearest opponent to candidate receiver AND passing lane clearance
         float min_opp = 1e9f;
+        float min_lane = 1e9f;
         int8_t opp_start = (restart_team == 0) ? 11 : 0;
+        const Vec2 seg = mate.position - ball_2d;
+        const float seg_len_sq = std::max(seg.length_sq(), 1e-4f);
         for (int8_t o = opp_start; o < opp_start + 11; ++o) {
-            float od = (state.players[static_cast<std::size_t>(o)].position - mate.position).length();
+            const Vec2& op = state.players[static_cast<std::size_t>(o)].position;
+            float od = (op - mate.position).length();
             if (od < min_opp) min_opp = od;
+            float proj = std::clamp((op - ball_2d).dot(seg) / seg_len_sq, 0.0f, 1.0f);
+            float ld = (op - (ball_2d + seg * proj)).length();
+            if (ld < min_lane) min_lane = ld;
         }
 
-        float score = min_opp * 2.0f - std::abs(d - 16.0f) * 0.3f;
+        float score = min_opp * 2.0f + std::min(min_lane, 6.0f) * 2.5f - std::abs(d - 15.0f) * 0.35f;
         if (prev_state == PlayState::Kickoff) {
             // Prefer midfield/defender in own half for clean kickoff circulation
             if (mate.position.x * attack_dir < 0.0f) score += 20.0f;
@@ -194,6 +202,7 @@ void MatchRules::execute_restart(MatchState& state, std::vector<MatchEvent>& eve
     state.last_possessing_team = static_cast<int8_t>(restart_team);
     state.possession_change_tick = state.tick;
     state.shot_active = false;
+    state.pass_target_slot = best_target;
     state.stuck_ball_ticks = 0;
 
     if (prev_state == PlayState::Kickoff) {

@@ -22,8 +22,11 @@ Vec2 compute_dynamic_anchor(const TacticalConfig& tactics,
     // Outfield defensive line shift
     float line_offset = (norm_idx == 0) ? 0.0f : ((tactics.defensive_line - 0.5f) * 14.0f * attack_dir);
 
-    // Shift relative to ball position
-    float shift_x = ball_pos.x * 0.35f * tactics.defensive_line;
+    // Shift relative to ball position (defending teams compress vertically toward ball zone)
+    float x_gain = in_possession
+        ? (0.35f * tactics.defensive_line)
+        : (0.28f + 0.24f * tactics.defensive_line);
+    float shift_x = ball_pos.x * x_gain;
     float shift_y = ball_pos.y * 0.25f;
 
     float final_x = anchor_x + shift_x + line_offset;
@@ -32,6 +35,11 @@ Vec2 compute_dynamic_anchor(const TacticalConfig& tactics,
     if (!in_possession) {
         // Compress team width by 15% out of possession
         final_y *= 0.85f;
+        // Pull midfielders and attackers back into a compact defensive block when ball is deep in own half
+        if (norm_idx != 0 && ball_pos.x * attack_dir < -10.0f) {
+            const float deep_ratio = std::clamp((-10.0f - ball_pos.x * attack_dir) / 42.5f, 0.0f, 1.0f);
+            final_x -= attack_dir * deep_ratio * 10.0f;
+        }
     } else if (role == RoleId::Winger) {
         // In possession, wingers extend width toward touchlines (+/- 30.0m)
         float sign_y = (final_y >= 0.0f) ? 1.0f : -1.0f;

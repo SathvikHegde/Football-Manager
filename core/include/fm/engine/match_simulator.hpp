@@ -2,6 +2,7 @@
 #include <vector>
 #include <cstdint>
 #include "fm/engine/pitch.hpp"
+#include "fm/engine/match_stats.hpp"
 #include "fm/model/match_state.hpp"
 #include "fm/model/match_event.hpp"
 #include "fm/recording/checkpoint_manager.hpp"
@@ -18,12 +19,21 @@ public:
                           uint64_t seed = 12345,
                           FormationId home_formation = FormationId::F_442,
                           FormationId away_formation = FormationId::F_442);
+    void initialize_match(MatchState& state,
+                          uint64_t seed,
+                          FormationId home_formation,
+                          FormationId away_formation,
+                          uint8_t home_rating,
+                          uint8_t away_rating);
     void step_tick(MatchState& state);
     void simulate_match(MatchState& state, MatchRecording& recording, uint32_t max_ticks = Pitch::TICKS_FULL_TIME);
     void simulate_match(MatchState& state,
                         MatchRecording& recording,
                         CheckpointManager& checkpoints,
                         uint32_t max_ticks = Pitch::TICKS_FULL_TIME);
+    void simulate_headless(MatchState& state,
+                           MatchStats& stats,
+                           uint32_t max_ticks = Pitch::TICKS_FULL_TIME);
     void resume_simulation(MatchState& state,
                            MatchRecording& recording,
                            CheckpointManager& checkpoints,

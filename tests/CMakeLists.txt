@@ -5,6 +5,7 @@ add_executable(fm_tests
     test_rollback.cpp
     test_rules.cpp
     test_match_loop.cpp
+    test_calibration.cpp
 )
 
 target_include_directories(fm_tests PRIVATE

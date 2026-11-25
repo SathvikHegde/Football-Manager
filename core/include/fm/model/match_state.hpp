@@ -61,6 +61,7 @@ struct MatchState {
     uint32_t possession_change_tick{0};
     bool shot_active{false};
     int8_t shot_shooter_slot{-1};
+    int8_t pass_target_slot{-1};
     Vec2 shot_origin{0.0f, 0.0f};
     Vec3 shot_target_pos{0.0f, 0.0f, 0.0f};
     float shot_initial_speed{0.0f};

@@ -3,6 +3,7 @@ add_library(fm_core STATIC
     src/engine/version.cpp
     src/engine/pitch.cpp
     src/engine/match_simulator.cpp
+    src/engine/match_stats.cpp
     src/engine/ball_physics.cpp
     src/engine/player_kinematics.cpp
     src/engine/rules.cpp
@@ -15,6 +16,7 @@ add_library(fm_core STATIC
     src/model/player.cpp
     src/model/match_state.cpp
     src/model/tactics.cpp
+    src/model/team.cpp
 
     # Recording
     src/recording/frame_snapshot.cpp

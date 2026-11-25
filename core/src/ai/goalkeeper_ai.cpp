@@ -25,9 +25,10 @@ float compute_save_margin(const MatchState& state, uint8_t gk_slot, const Vec3& 
         arrival_pos.y - gk.position.y,
         std::max(0.0f, shot_target.z - 1.25f));
     const float d_shot = std::max((arrival_pos - origin).length(), 1.0f);
-    const float t_flight = d_shot / shot_speed;
-    const float t_react = 0.25f - 0.12f * gk.attrs.norm(gk.attrs.positioning);
-    const float reach = (t_flight - t_react) * (4.5f + 4.0f * gk.attrs.norm(gk.attrs.acceleration));
+    const float t_flight = (d_shot / shot_speed) * 1.08f;
+    const float t_react = 0.19f - 0.10f * gk.attrs.norm(gk.attrs.positioning);
+    const float standing_arm_span = 1.58f + 0.22f * gk.attrs.norm(gk.attrs.positioning);
+    const float reach = standing_arm_span + std::max(0.0f, t_flight - t_react) * (8.3f + 3.9f * gk.attrs.norm(gk.attrs.acceleration));
 
     return reach - d_dive;
 }
@@ -99,7 +100,7 @@ void update_goalkeeper_position(MatchState& state, uint8_t gk_slot) {
 
     const float dist_ball_to_goal = (ball_2d - Vec2{own_goal_x, 0.0f}).length();
     const float t = std::clamp((dist_ball_to_goal - 16.5f) / (52.5f - 16.5f), 0.0f, 1.0f);
-    const float depth = 1.5f + t * (8.0f - 1.5f);
+    const float depth = 1.2f + t * (6.0f - 1.2f);
 
     Vec2 target = bisect_origin + dir_to_ball * depth;
     target.x = (own_goal_x < 0.0f)
@@ -116,7 +117,7 @@ bool evaluate_shot_save(const MatchState& state, uint8_t gk_slot, const Vec3& sh
 }
 
 bool resolve_shot_intercept(MatchState& state, uint8_t gk_slot, std::vector<MatchEvent>& events) {
-    if (!state.shot_active || state.ball.owner_slot >= 0 || state.ball.claim_lock_ticks > 0) {
+    if (!state.shot_active || state.ball.owner_slot >= 0) {
         return false;
     }
     if (gk_slot >= state.players.size()) return false;
@@ -132,11 +133,11 @@ bool resolve_shot_intercept(MatchState& state, uint8_t gk_slot, std::vector<Matc
     const float attack_dir = Pitch::attack_direction(gk.team_id, state.half);
     const float own_goal_x = Pitch::own_goal_x(gk.team_id, state.half);
 
-    // Ball must be moving toward own goal and near the goal-mouth intercept zone
+    // Ball must be moving toward own goal and near or just crossing the goal-mouth intercept zone
     const float dist_from_goal_line = (state.ball.position.x - own_goal_x) * attack_dir;
     const float speed_toward_goal = state.ball.velocity.x * (-attack_dir);
 
-    if (dist_from_goal_line < -0.2f || dist_from_goal_line > 3.5f || speed_toward_goal <= 1.0f) {
+    if (dist_from_goal_line < -1.8f || dist_from_goal_line > 4.2f || speed_toward_goal <= 1.0f) {
         return false;
     }
 
@@ -161,27 +162,32 @@ bool resolve_shot_intercept(MatchState& state, uint8_t gk_slot, std::vector<Matc
     state.shot_active = false;
     gk.current_action = ActionType::Save;
 
-    if (margin > 1.1f && state.ball.position.z < 2.1f) {
+    if (margin > 0.15f && state.ball.position.z < 2.15f) {
         // Comfortable catch
         state.ball.owner_slot = static_cast<int8_t>(gk_slot);
         state.ball.last_touch_slot = static_cast<int8_t>(gk_slot);
         state.ball.last_touch_team = static_cast<int8_t>(gk.team_id);
         state.ball.velocity = Vec3{0.0f, 0.0f, 0.0f};
+        state.ball.position.x = std::clamp(gk.position.x + attack_dir * 0.5f,
+                                           -Pitch::HALF_LENGTH + 0.6f, Pitch::HALF_LENGTH - 0.6f);
+        state.ball.position.y = gk.position.y;
         state.ball.position.z = 0.0f;
-        gk.action_cooldown_ticks = 6;
+        gk.action_cooldown_ticks = 4;
         state.last_possessing_team = static_cast<int8_t>(gk.team_id);
         state.possession_change_tick = state.tick;
     } else {
-        // Parried deflection away from goal
+        // Parried deflection pushed wide away from danger zone
         const float parry_sign_y = (state.shot_target_pos.y >= gk.position.y) ? 1.0f : -1.0f;
-        const float vx = attack_dir * (6.5f + 4.0f * state.rng.next_float());
-        const float vy = parry_sign_y * (6.0f + 5.0f * state.rng.next_float());
+        const float vx = attack_dir * (8.5f + 4.5f * state.rng.next_float());
+        const float vy = parry_sign_y * (9.5f + 5.5f * state.rng.next_float());
+        state.ball.position.x = std::clamp(state.ball.position.x,
+                                           -Pitch::HALF_LENGTH + 0.8f, Pitch::HALF_LENGTH - 0.8f);
         state.ball.velocity = Vec3{vx, vy, 2.2f};
         state.ball.owner_slot = -1;
         state.ball.last_touch_slot = static_cast<int8_t>(gk_slot);
         state.ball.last_touch_team = static_cast<int8_t>(gk.team_id);
-        state.ball.claim_lock_ticks = 6;
-        gk.action_cooldown_ticks = 8;
+        state.ball.claim_lock_ticks = 4;
+        gk.action_cooldown_ticks = 2;
         state.possession_change_tick = state.tick;
     }
 

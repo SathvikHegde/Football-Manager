@@ -27,7 +27,11 @@
             "generator": "Ninja",
             "binaryDir": "${sourceDir}/build/release",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release"
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_MSVC_DEBUG_INFORMATION_FORMAT": "Embedded"
+            },
+            "environment": {
+                "_CL_": "/Z7"
             }
         }
     ],
@@ -45,6 +49,13 @@
         {
             "name": "windows-debug",
             "configurePreset": "windows-debug",
+            "output": {
+                "outputOnFailure": true
+            }
+        },
+        {
+            "name": "windows-release",
+            "configurePreset": "windows-release",
             "output": {
                 "outputOnFailure": true
             }
