@@ -16,6 +16,8 @@ struct BallState {
     int8_t last_touch_slot{-1};
     int8_t last_touch_team{-1};
     uint16_t claim_lock_ticks{0};    // Prevents instant re-claim by passer
+
+    [[nodiscard]] constexpr bool operator==(const BallState& o) const = default;
 };
 
 enum class FormationId : uint8_t {
@@ -29,6 +31,8 @@ struct TacticalConfig {
     float pressing_intensity{0.5f}; // 0.0 (Stand Off) to 1.0 (Gegenpress)
     float passing_directness{0.5f}; // 0.0 (Short/Tiki-Taka) to 1.0 (Direct/Long Ball)
     float tempo{0.5f};              // 0.0 (Patient) to 1.0 (Fast Pace)
+
+    [[nodiscard]] constexpr bool operator==(const TacticalConfig& o) const = default;
 };
 
 enum class PlayState : uint8_t {
@@ -62,6 +66,8 @@ struct MatchState {
     float shot_initial_speed{0.0f};
     uint16_t stuck_ball_ticks{0};
     Vec2 last_ball_check_pos{0.0f, 0.0f};
+
+    [[nodiscard]] constexpr bool operator==(const MatchState& o) const = default;
 };
 
 } // namespace fm

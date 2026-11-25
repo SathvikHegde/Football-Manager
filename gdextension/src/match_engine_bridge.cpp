@@ -2,6 +2,9 @@
 #include <godot_cpp/core/class_db.hpp>
 #include "fm/engine/version.hpp"
 #include "fm/engine/pitch.hpp"
+#include "fm/model/tactics.hpp"
+#include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <string>
 
@@ -91,9 +94,29 @@ std::string format_event_message(const fm::MatchEvent& evt) {
             return "Pass completed to " + p2;
         case fm::EventType::Dribble:
             return "Dribble run by " + p1;
+        case fm::EventType::TacticalChange: {
+            const char* team = (evt.primary_slot >= 0 && evt.primary_slot < 11) ? "Home" : "Away";
+            const auto form = fm::sanitize_formation(static_cast<int>(evt.secondary_slot));
+            const std::string form_str(fm::formation_name(form));
+            char buf[96];
+            std::snprintf(buf, sizeof(buf), "Tactics (%s): %s | Line %.2f | Press %.2f",
+                          team, form_str.c_str(), evt.location.x, evt.location.y);
+            return std::string(buf);
+        }
         default:
             return std::string(event_type_to_str(evt.type));
     }
+}
+
+fm::MatchEvent make_tactical_change_event(uint32_t tick, uint8_t team_id, const fm::TacticalConfig& cfg) {
+    fm::MatchEvent evt{};
+    evt.tick = tick;
+    evt.type = fm::EventType::TacticalChange;
+    evt.primary_slot = (team_id == 0) ? 0 : 11;
+    evt.secondary_slot = static_cast<int8_t>(cfg.formation);
+    evt.location = fm::Vec2{cfg.defensive_line, cfg.pressing_intensity};
+    evt.xg_value = cfg.tempo;
+    return evt;
 }
 
 } // namespace
@@ -109,7 +132,11 @@ void MatchEngineBridge::_bind_methods() {
     ClassDB::bind_method(D_METHOD("get_tick_hud_state", "tick"), &MatchEngineBridge::get_tick_hud_state);
     ClassDB::bind_method(D_METHOD("get_match_events"), &MatchEngineBridge::get_match_events);
     ClassDB::bind_method(D_METHOD("get_total_ticks"), &MatchEngineBridge::get_total_ticks);
+    ClassDB::bind_method(D_METHOD("get_checkpoint_count"), &MatchEngineBridge::get_checkpoint_count);
+    ClassDB::bind_method(D_METHOD("get_last_sim_time_ms"), &MatchEngineBridge::get_last_sim_time_ms);
+    ClassDB::bind_method(D_METHOD("get_team_tactics", "team_id"), &MatchEngineBridge::get_team_tactics);
     ClassDB::bind_method(D_METHOD("apply_tactical_change", "team_id", "formation_id", "defensive_line", "pressing"), &MatchEngineBridge::apply_tactical_change);
+    ClassDB::bind_method(D_METHOD("apply_tactical_change_full", "team_id", "formation_id", "defensive_line", "pressing", "passing_directness", "tempo"), &MatchEngineBridge::apply_tactical_change_full);
     ClassDB::bind_method(D_METHOD("rollback_and_resimulate", "target_tick"), &MatchEngineBridge::rollback_and_resimulate);
 }
 
@@ -129,29 +156,30 @@ String MatchEngineBridge::get_engine_version() const {
 
 void MatchEngineBridge::initialize_match(uint64_t seed) {
     initial_seed_ = seed;
+    pending_home_edit_ = PendingTacticalEdit{};
+    pending_away_edit_ = PendingTacticalEdit{};
+    last_sim_time_ms_ = 0.0;
     simulator_.initialize_match(current_state_, seed);
     recording_.clear();
     checkpoint_mgr_.clear();
 }
 
 void MatchEngineBridge::simulate_full_match() {
-    recording_.clear();
-    recording_.reserve(fm::Pitch::TICKS_FULL_TIME);
-    checkpoint_mgr_.clear();
-
-    while (current_state_.tick < fm::Pitch::TICKS_FULL_TIME) {
-        if (current_state_.tick % fm::CheckpointManager::CHECKPOINT_INTERVAL == 0) {
-            checkpoint_mgr_.save_checkpoint(current_state_);
-        }
-        simulator_.step_tick(current_state_);
-        recording_.add_frame(fm::FrameSnapshot::from_state(current_state_), current_state_);
-        if (!simulator_.recent_events().empty()) {
-            recording_.add_events(simulator_.recent_events());
-        }
+    if (current_state_.tick >= fm::Pitch::TICKS_FULL_TIME ||
+        current_state_.play_state == fm::PlayState::FullTime) {
+        simulator_.initialize_match(current_state_, initial_seed_);
     }
+    pending_home_edit_ = PendingTacticalEdit{};
+    pending_away_edit_ = PendingTacticalEdit{};
+
+    const auto t0 = std::chrono::steady_clock::now();
+    simulator_.simulate_match(current_state_, recording_, checkpoint_mgr_, fm::Pitch::TICKS_FULL_TIME);
+    const auto t1 = std::chrono::steady_clock::now();
+    last_sim_time_ms_ = std::chrono::duration<double, std::milli>(t1 - t0).count();
 }
 
 void MatchEngineBridge::run_sandbox_demo() {
+    checkpoint_mgr_.clear();
     simulator_.run_sandbox_demo(current_state_, recording_, 1000);
 }
 
@@ -173,6 +201,10 @@ Dictionary MatchEngineBridge::get_match_metadata() const {
     meta["score_away"] = current_state_.score_away;
     meta["total_ticks"] = static_cast<int>(recording_.frame_count());
     meta["current_tick"] = static_cast<int>(current_state_.tick);
+    meta["checkpoint_count"] = static_cast<int>(checkpoint_mgr_.count());
+    meta["checkpoint_bytes"] = static_cast<int64_t>(checkpoint_mgr_.memory_bytes());
+    meta["last_sim_ms"] = last_sim_time_ms_;
+    meta["seed"] = static_cast<int64_t>(initial_seed_);
     meta["version"] = String(fm::engine_version().data());
     return meta;
 }
@@ -186,12 +218,28 @@ Dictionary MatchEngineBridge::get_tick_hud_state(int tick) const {
         hud["play_state"] = static_cast<int>(meta.play_state);
         hud["play_state_name"] = String(play_state_to_str(meta.play_state));
         hud["half"] = meta.half;
+        hud["home_formation"] = static_cast<int>(meta.home_formation);
+        hud["away_formation"] = static_cast<int>(meta.away_formation);
+        hud["home_formation_name"] = String(fm::formation_name(meta.home_formation).data());
+        hud["away_formation_name"] = String(fm::formation_name(meta.away_formation).data());
+        hud["home_def_line"] = static_cast<float>(meta.home_def_line_pct) / 100.0f;
+        hud["home_pressing"] = static_cast<float>(meta.home_press_pct) / 100.0f;
+        hud["away_def_line"] = static_cast<float>(meta.away_def_line_pct) / 100.0f;
+        hud["away_pressing"] = static_cast<float>(meta.away_press_pct) / 100.0f;
     } else {
         hud["score_home"] = 0;
         hud["score_away"] = 0;
         hud["play_state"] = static_cast<int>(fm::PlayState::Kickoff);
         hud["play_state_name"] = String("Kickoff");
         hud["half"] = 1;
+        hud["home_formation"] = static_cast<int>(current_state_.home_tactics.formation);
+        hud["away_formation"] = static_cast<int>(current_state_.away_tactics.formation);
+        hud["home_formation_name"] = String(fm::formation_name(current_state_.home_tactics.formation).data());
+        hud["away_formation_name"] = String(fm::formation_name(current_state_.away_tactics.formation).data());
+        hud["home_def_line"] = current_state_.home_tactics.defensive_line;
+        hud["home_pressing"] = current_state_.home_tactics.pressing_intensity;
+        hud["away_def_line"] = current_state_.away_tactics.defensive_line;
+        hud["away_pressing"] = current_state_.away_tactics.pressing_intensity;
     }
     return hud;
 }
@@ -220,23 +268,170 @@ int MatchEngineBridge::get_total_ticks() const {
     return static_cast<int>(recording_.frame_count());
 }
 
+int MatchEngineBridge::get_checkpoint_count() const {
+    return static_cast<int>(checkpoint_mgr_.count());
+}
+
+double MatchEngineBridge::get_last_sim_time_ms() const {
+    return last_sim_time_ms_;
+}
+
+Dictionary MatchEngineBridge::get_team_tactics(int team_id) const {
+    const auto& t = (team_id == 0) ? current_state_.home_tactics : current_state_.away_tactics;
+    Dictionary d;
+    d["team_id"] = (team_id == 0) ? 0 : 1;
+    d["formation_id"] = static_cast<int>(t.formation);
+    d["formation_name"] = String(fm::formation_name(t.formation).data());
+    d["defensive_line"] = t.defensive_line;
+    d["pressing_intensity"] = t.pressing_intensity;
+    d["passing_directness"] = t.passing_directness;
+    d["tempo"] = t.tempo;
+    return d;
+}
+
 void MatchEngineBridge::apply_tactical_change(int team_id, int formation_id, float defensive_line, float pressing) {
-    auto& tactics = (team_id == 0) ? current_state_.home_tactics : current_state_.away_tactics;
-    tactics.formation = static_cast<fm::FormationId>(formation_id);
-    tactics.defensive_line = defensive_line;
-    tactics.pressing_intensity = pressing;
+    const fm::FormationId safe_form = fm::sanitize_formation(formation_id);
+    const float safe_line = std::clamp(defensive_line, 0.0f, 1.0f);
+    const float safe_press = std::clamp(pressing, 0.0f, 1.0f);
+
+    if (recording_.frame_count() == 0) {
+        fm::apply_tactical_change(current_state_, static_cast<uint8_t>(team_id == 0 ? 0 : 1),
+                                  safe_form, safe_line, safe_press);
+        return;
+    }
+
+    auto& edit = (team_id == 0) ? pending_home_edit_ : pending_away_edit_;
+    edit.active = true;
+    edit.formation = safe_form;
+    edit.defensive_line = safe_line;
+    edit.pressing_intensity = safe_press;
+    edit.has_full_extras = false;
+}
+
+void MatchEngineBridge::apply_tactical_change_full(int team_id,
+                                                   int formation_id,
+                                                   float defensive_line,
+                                                   float pressing,
+                                                   float passing_directness,
+                                                   float tempo) {
+    const fm::FormationId safe_form = fm::sanitize_formation(formation_id);
+    const float safe_line = std::clamp(defensive_line, 0.0f, 1.0f);
+    const float safe_press = std::clamp(pressing, 0.0f, 1.0f);
+    const float safe_direct = std::clamp(passing_directness, 0.0f, 1.0f);
+    const float safe_tempo = std::clamp(tempo, 0.0f, 1.0f);
+
+    if (recording_.frame_count() == 0) {
+        const uint8_t safe_team = (team_id == 0) ? 0 : 1;
+        fm::TacticalConfig next = (safe_team == 0) ? current_state_.home_tactics : current_state_.away_tactics;
+        if (safe_form != next.formation) {
+            next.formation = safe_form;
+            next.base_anchors_norm = fm::get_default_tactics(safe_form).base_anchors_norm;
+        }
+        next.defensive_line = safe_line;
+        next.pressing_intensity = safe_press;
+        next.passing_directness = safe_direct;
+        next.tempo = safe_tempo;
+        fm::apply_tactical_change(current_state_, safe_team, next);
+        return;
+    }
+
+    auto& edit = (team_id == 0) ? pending_home_edit_ : pending_away_edit_;
+    edit.active = true;
+    edit.formation = safe_form;
+    edit.defensive_line = safe_line;
+    edit.pressing_intensity = safe_press;
+    edit.has_full_extras = true;
+    edit.passing_directness = safe_direct;
+    edit.tempo = safe_tempo;
 }
 
 void MatchEngineBridge::rollback_and_resimulate(int target_tick) {
-    if (target_tick < 0) return;
-    const auto* cp = checkpoint_mgr_.get_nearest_checkpoint(static_cast<uint32_t>(target_tick));
-    if (cp) {
-        current_state_ = *cp;
-        while (current_state_.tick < static_cast<uint32_t>(target_tick)) {
-            simulator_.step_tick(current_state_);
-        }
-        recording_.truncate(static_cast<std::size_t>(target_tick));
+    if (checkpoint_mgr_.count() == 0) {
+        return;
     }
+
+    const uint32_t clamped_tick = static_cast<uint32_t>(
+        std::clamp(target_tick, 0, static_cast<int>(fm::Pitch::TICKS_FULL_TIME)));
+
+    const PendingTacticalEdit home_edit = pending_home_edit_;
+    const PendingTacticalEdit away_edit = pending_away_edit_;
+    pending_home_edit_ = PendingTacticalEdit{};
+    pending_away_edit_ = PendingTacticalEdit{};
+
+    const auto t0 = std::chrono::steady_clock::now();
+
+    if (home_edit.active) {
+        checkpoint_mgr_.remove_tactical_change_at(clamped_tick, 0);
+    }
+    if (away_edit.active) {
+        checkpoint_mgr_.remove_tactical_change_at(clamped_tick, 1);
+    }
+
+    if (!simulator_.rollback_to_tick(current_state_, recording_, checkpoint_mgr_, clamped_tick)) {
+        return;
+    }
+
+    auto build_tactics_for = [this](uint8_t team_id, const PendingTacticalEdit& edit) {
+        fm::TacticalConfig next = (team_id == 0) ? current_state_.home_tactics : current_state_.away_tactics;
+        if (edit.formation != next.formation) {
+            next.formation = edit.formation;
+            next.base_anchors_norm = fm::get_default_tactics(edit.formation).base_anchors_norm;
+        }
+        next.defensive_line = edit.defensive_line;
+        next.pressing_intensity = edit.pressing_intensity;
+        if (edit.has_full_extras) {
+            next.passing_directness = edit.passing_directness;
+            next.tempo = edit.tempo;
+        }
+        return next;
+    };
+
+    fm::TacticalConfig home_cfg{};
+    fm::TacticalConfig away_cfg{};
+    const fm::TacticalConfig* home_ptr = nullptr;
+    const fm::TacticalConfig* away_ptr = nullptr;
+
+    if (home_edit.active) {
+        home_cfg = build_tactics_for(0, home_edit);
+        home_ptr = &home_cfg;
+    }
+    if (away_edit.active) {
+        away_cfg = build_tactics_for(1, away_edit);
+        away_ptr = &away_cfg;
+    }
+
+    // Re-apply pre-existing tactical history at clamped_tick for untouched teams & apply pending edits
+    std::vector<fm::MatchEvent> tactical_events;
+    for (const auto& entry : checkpoint_mgr_.tactical_history()) {
+        if (entry.tick == current_state_.tick) {
+            if (fm::apply_tactical_change(current_state_, entry.team_id, entry.tactics)) {
+                tactical_events.push_back(
+                    make_tactical_change_event(current_state_.tick, entry.team_id, entry.tactics));
+            }
+        }
+    }
+
+    auto apply_pending = [&](uint8_t team_id, const fm::TacticalConfig* cfg) {
+        if (!cfg) return;
+        if (fm::apply_tactical_change(current_state_, team_id, *cfg)) {
+            const auto& applied = (team_id == 0) ? current_state_.home_tactics : current_state_.away_tactics;
+            checkpoint_mgr_.record_tactical_change(current_state_.tick, team_id, applied);
+            tactical_events.push_back(
+                make_tactical_change_event(current_state_.tick, team_id, applied));
+        }
+    };
+
+    apply_pending(0, home_ptr);
+    apply_pending(1, away_ptr);
+
+    if (!tactical_events.empty()) {
+        recording_.add_events(tactical_events);
+    }
+
+    simulator_.resume_simulation(current_state_, recording_, checkpoint_mgr_, fm::Pitch::TICKS_FULL_TIME);
+
+    const auto t1 = std::chrono::steady_clock::now();
+    last_sim_time_ms_ = std::chrono::duration<double, std::milli>(t1 - t0).count();
 }
 
 } // namespace godot

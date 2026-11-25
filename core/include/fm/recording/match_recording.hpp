@@ -14,6 +14,14 @@ struct FrameMeta {
     uint8_t half{1};
     uint8_t score_home{0};
     uint8_t score_away{0};
+    FormationId home_formation{FormationId::F_442};
+    FormationId away_formation{FormationId::F_442};
+    uint8_t home_def_line_pct{50};
+    uint8_t home_press_pct{50};
+    uint8_t away_def_line_pct{50};
+    uint8_t away_press_pct{50};
+
+    [[nodiscard]] constexpr bool operator==(const FrameMeta& o) const = default;
 };
 
 class MatchRecording {

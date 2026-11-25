@@ -1,7 +1,16 @@
 #include "fm/recording/match_recording.hpp"
 #include <algorithm>
+#include <cmath>
 
 namespace fm {
+
+namespace {
+
+uint8_t to_pct_byte(float val) {
+    return static_cast<uint8_t>(std::clamp(std::lround(val * 100.0f), 0L, 100L));
+}
+
+} // namespace
 
 void MatchRecording::reserve(std::size_t num_frames) {
     frames_.reserve(num_frames);
@@ -19,7 +28,13 @@ void MatchRecording::add_frame(const FrameSnapshot& snapshot, const MatchState& 
         state.play_state,
         state.half,
         state.score_home,
-        state.score_away
+        state.score_away,
+        state.home_tactics.formation,
+        state.away_tactics.formation,
+        to_pct_byte(state.home_tactics.defensive_line),
+        to_pct_byte(state.home_tactics.pressing_intensity),
+        to_pct_byte(state.away_tactics.defensive_line),
+        to_pct_byte(state.away_tactics.pressing_intensity)
     });
 }
 
@@ -35,7 +50,14 @@ void MatchRecording::truncate(std::size_t target_tick) {
         frame_meta_.resize(target_tick);
     }
     std::erase_if(events_, [target_tick](const MatchEvent& evt) {
-        return static_cast<std::size_t>(evt.tick) > target_tick;
+        if (static_cast<std::size_t>(evt.tick) > target_tick) {
+            return true;
+        }
+        if (evt.type == EventType::TacticalChange &&
+            static_cast<std::size_t>(evt.tick) >= target_tick) {
+            return true;
+        }
+        return false;
     });
 }
 

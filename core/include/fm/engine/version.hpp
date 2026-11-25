@@ -8,7 +8,7 @@ namespace fm {
 }
 
 [[nodiscard]] constexpr std::string_view engine_version() noexcept {
-    return "0.2.0-stage2";
+    return "0.3.0-stage3";
 }
 
 } // namespace fm

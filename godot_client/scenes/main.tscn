@@ -33,7 +33,7 @@ layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(0.7, 0.7, 0.7, 1)
 theme_override_font_sizes/font_size = 13
-text = "Stage 2: 22-Player Match Engine"
+text = "Stage 3: Deterministic Pre-Simulation & Rollback"
 vertical_alignment = 1
 
 [node name="TickLabel" type="Label" parent="UI/TopBar"]
@@ -83,11 +83,11 @@ text = "●"
 vertical_alignment = 1
 
 [node name="ScoreLabel" type="Label" parent="UI/MatchHUD/ScoreboardBar/ScoreboardHBox"]
-custom_minimum_size = Vector2(210, 0)
+custom_minimum_size = Vector2(290, 0)
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 1, 1, 1)
-theme_override_font_sizes/font_size = 18
-text = "HOME  0 - 0  AWAY"
+theme_override_font_sizes/font_size = 17
+text = "HOME (4-4-2)  0 - 0  (4-3-3) AWAY"
 horizontal_alignment = 1
 vertical_alignment = 1
 
@@ -127,7 +127,7 @@ vertical_alignment = 1
 
 [node name="EventPanel" type="PanelContainer" parent="UI/MatchHUD"]
 offset_left = 930.0
-offset_top = 46.0
+offset_top = 318.0
 offset_right = 1260.0
 offset_bottom = 650.0
 
@@ -163,6 +163,118 @@ size_flags_vertical = 3
 theme_override_font_sizes/normal_font_size = 12
 bbcode_enabled = true
 scroll_following = true
+
+[node name="TacticalPanel" type="PanelContainer" parent="UI"]
+offset_left = 930.0
+offset_top = 46.0
+offset_right = 1260.0
+offset_bottom = 310.0
+
+[node name="Margin" type="MarginContainer" parent="UI/TacticalPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 8
+
+[node name="VBox" type="VBoxContainer" parent="UI/TacticalPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 7
+
+[node name="HeaderLabel" type="Label" parent="UI/TacticalPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.85, 0.2, 1)
+theme_override_font_sizes/font_size = 15
+text = "TACTICAL ROLLBACK"
+
+[node name="TeamRow" type="HBoxContainer" parent="UI/TacticalPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TeamLabel" type="Label" parent="UI/TacticalPanel/Margin/VBox/TeamRow"]
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "Team:"
+
+[node name="TeamOption" type="OptionButton" parent="UI/TacticalPanel/Margin/VBox/TeamRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="FormationRow" type="HBoxContainer" parent="UI/TacticalPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="FormationLabel" type="Label" parent="UI/TacticalPanel/Margin/VBox/FormationRow"]
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "Formation:"
+
+[node name="FormationOption" type="OptionButton" parent="UI/TacticalPanel/Margin/VBox/FormationRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="LineRow" type="HBoxContainer" parent="UI/TacticalPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="LineTitle" type="Label" parent="UI/TacticalPanel/Margin/VBox/LineRow"]
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "Def Line:"
+
+[node name="LineSlider" type="HSlider" parent="UI/TacticalPanel/Margin/VBox/LineRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+max_value = 1.0
+step = 0.05
+value = 0.5
+
+[node name="LineValue" type="Label" parent="UI/TacticalPanel/Margin/VBox/LineRow"]
+custom_minimum_size = Vector2(36, 0)
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "0.50"
+horizontal_alignment = 2
+
+[node name="PressRow" type="HBoxContainer" parent="UI/TacticalPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="PressTitle" type="Label" parent="UI/TacticalPanel/Margin/VBox/PressRow"]
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "Pressing:"
+
+[node name="PressSlider" type="HSlider" parent="UI/TacticalPanel/Margin/VBox/PressRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+max_value = 1.0
+step = 0.05
+value = 0.5
+
+[node name="PressValue" type="Label" parent="UI/TacticalPanel/Margin/VBox/PressRow"]
+custom_minimum_size = Vector2(36, 0)
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "0.50"
+horizontal_alignment = 2
+
+[node name="ApplyRollbackButton" type="Button" parent="UI/TacticalPanel/Margin/VBox"]
+layout_mode = 2
+text = "Apply & Resim @ 00:00"
+
+[node name="RollbackStatusLabel" type="Label" parent="UI/TacticalPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.65, 0.85, 0.95, 1)
+theme_override_font_sizes/font_size = 11
+text = "Scrub to any tick & apply tactical rollback"
+clip_text = true
 
 [node name="BottomBar" type="HBoxContainer" parent="UI"]
 anchors_preset = 12
@@ -201,6 +313,26 @@ text = "↺ Restart"
 custom_minimum_size = Vector2(95, 0)
 layout_mode = 2
 text = "🎲 New Seed"
+
+[node name="Jump0Button" type="Button" parent="UI/BottomBar"]
+custom_minimum_size = Vector2(36, 0)
+layout_mode = 2
+text = "0'"
+
+[node name="JumpHTButton" type="Button" parent="UI/BottomBar"]
+custom_minimum_size = Vector2(38, 0)
+layout_mode = 2
+text = "HT"
+
+[node name="Jump60Button" type="Button" parent="UI/BottomBar"]
+custom_minimum_size = Vector2(38, 0)
+layout_mode = 2
+text = "60'"
+
+[node name="Jump75Button" type="Button" parent="UI/BottomBar"]
+custom_minimum_size = Vector2(38, 0)
+layout_mode = 2
+text = "75'"
 
 [node name="ScrubSlider" type="HSlider" parent="UI/BottomBar"]
 layout_mode = 2

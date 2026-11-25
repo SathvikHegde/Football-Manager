@@ -13,6 +13,8 @@ struct FrameSnapshot {
 
     static FrameSnapshot from_state(const MatchState& state);
     void write_to(float* dest) const;
+
+    [[nodiscard]] constexpr bool operator==(const FrameSnapshot& o) const = default;
 };
 
 } // namespace fm

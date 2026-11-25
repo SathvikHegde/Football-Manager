@@ -23,7 +23,8 @@ const MAJOR_EVENT_TYPES := {
 	13: true, # GoalKick
 	14: true, # ThrowIn
 	15: true, # HalfTime
-	16: true  # FullTime
+	16: true, # FullTime
+	17: true  # TacticalChange
 }
 
 func _ready() -> void:
@@ -50,8 +51,11 @@ func update_hud(tick: int, hud_state: Dictionary) -> void:
 	var play_state_id: int = int(hud_state.get("play_state", 1))
 	var half_num: int = int(hud_state.get("half", 1))
 
+	var home_form: String = str(hud_state.get("home_formation_name", "4-4-2"))
+	var away_form: String = str(hud_state.get("away_formation_name", "4-4-2"))
+
 	if score_label:
-		score_label.text = "HOME  %d - %d  AWAY" % [score_home, score_away]
+		score_label.text = "HOME (%s)  %d - %d  (%s) AWAY" % [home_form, score_home, score_away, away_form]
 
 	if clock_label:
 		clock_label.text = _format_clock(tick)
@@ -117,6 +121,8 @@ func update_hud(tick: int, hud_state: Dictionary) -> void:
 				color_hex = "#a3be8c"
 			elif etype == 15 or etype == 16: # HT / FT
 				color_hex = "#ebcb8b"
+			elif etype == 17: # TacticalChange
+				color_hex = "#d08770"
 			lines.append("[color=%s][%s] %s[/color]" % [color_hex, ts, msg])
 
 	if stats_label:

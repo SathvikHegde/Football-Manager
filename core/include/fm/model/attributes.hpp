@@ -19,6 +19,8 @@ struct PlayerAttributes {
     [[nodiscard]] constexpr float norm(uint8_t val) const {
         return static_cast<float>(std::clamp<uint8_t>(val, 1, 20) - 1) / 19.0f;
     }
+
+    [[nodiscard]] constexpr bool operator==(const PlayerAttributes& o) const = default;
 };
 
 } // namespace fm

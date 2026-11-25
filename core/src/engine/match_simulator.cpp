@@ -92,6 +92,30 @@ void sync_ball_to_carrier(MatchState& state) {
     state.ball.velocity = Vec3{carrier.velocity.x, carrier.velocity.y, 0.0f};
 }
 
+MatchEvent make_tactical_event(const MatchState& state, uint8_t team_id, const TacticalConfig& tactics) {
+    MatchEvent evt{};
+    evt.tick = state.tick;
+    evt.type = EventType::TacticalChange;
+    evt.primary_slot = (team_id == 0) ? 0 : 11;
+    evt.secondary_slot = static_cast<int8_t>(tactics.formation);
+    evt.location = Vec2{tactics.defensive_line, tactics.pressing_intensity};
+    evt.xg_value = tactics.tempo;
+    return evt;
+}
+
+void apply_recorded_tactics_at_tick(MatchState& state,
+                                    const CheckpointManager& checkpoints,
+                                    uint32_t tick,
+                                    std::vector<MatchEvent>* out_events) {
+    for (const auto& entry : checkpoints.tactical_history()) {
+        if (entry.tick == tick) {
+            if (apply_tactical_change(state, entry.team_id, entry.tactics) && out_events) {
+                out_events->push_back(make_tactical_event(state, entry.team_id, entry.tactics));
+            }
+        }
+    }
+}
+
 } // namespace
 
 void MatchSimulator::reset(uint64_t /*seed*/) {
@@ -474,6 +498,148 @@ void MatchSimulator::simulate_match(MatchState& state, MatchRecording& recording
             recording.add_events(recent_events_);
         }
     }
+}
+
+void MatchSimulator::simulate_match(MatchState& state,
+                                    MatchRecording& recording,
+                                    CheckpointManager& checkpoints,
+                                    uint32_t max_ticks) {
+    recording.clear();
+    checkpoints.clear();
+    resume_simulation(state, recording, checkpoints, max_ticks);
+}
+
+void MatchSimulator::resume_simulation(MatchState& state,
+                                       MatchRecording& recording,
+                                       CheckpointManager& checkpoints,
+                                       uint32_t max_ticks) {
+    recording.reserve(max_ticks);
+
+    while (state.tick < max_ticks && state.play_state != PlayState::FullTime) {
+        if ((state.tick % CheckpointManager::CHECKPOINT_INTERVAL == 0) &&
+            !checkpoints.has_checkpoint_at(state.tick)) {
+            checkpoints.save_checkpoint(state);
+        }
+        step_tick(state);
+        recording.add_frame(FrameSnapshot::from_state(state), state);
+        if (!recent_events_.empty()) {
+            recording.add_events(recent_events_);
+        }
+    }
+}
+
+bool MatchSimulator::rollback_to_tick(MatchState& state,
+                                      MatchRecording& recording,
+                                      CheckpointManager& checkpoints,
+                                      uint32_t target_tick) {
+    const uint32_t clamped_tick = std::min(target_tick, Pitch::TICKS_FULL_TIME);
+    const MatchState* cp = checkpoints.get_nearest_checkpoint(clamped_tick);
+    if (!cp) {
+        return false;
+    }
+
+    const uint32_t cp_tick = cp->tick;
+    state = *cp;
+    checkpoints.truncate_after(clamped_tick);
+
+    while (state.tick < clamped_tick && state.play_state != PlayState::FullTime) {
+        apply_recorded_tactics_at_tick(state, checkpoints, state.tick, nullptr);
+        if (state.tick > cp_tick &&
+            (state.tick % CheckpointManager::CHECKPOINT_INTERVAL == 0) &&
+            !checkpoints.has_checkpoint_at(state.tick)) {
+            checkpoints.save_checkpoint(state);
+        }
+        step_tick(state);
+    }
+
+    recent_events_.clear();
+    recording.truncate(static_cast<std::size_t>(clamped_tick));
+    return true;
+}
+
+bool MatchSimulator::rollback_and_resimulate(MatchState& state,
+                                             MatchRecording& recording,
+                                             CheckpointManager& checkpoints,
+                                             uint32_t target_tick,
+                                             uint32_t max_ticks) {
+    return rollback_and_resimulate(state, recording, checkpoints, target_tick, nullptr, nullptr, max_ticks);
+}
+
+bool MatchSimulator::rollback_and_resimulate(MatchState& state,
+                                             MatchRecording& recording,
+                                             CheckpointManager& checkpoints,
+                                             uint32_t target_tick,
+                                             uint8_t team_id,
+                                             FormationId formation,
+                                             float defensive_line,
+                                             float pressing_intensity,
+                                             uint32_t max_ticks) {
+    const uint32_t clamped_tick = std::min(target_tick, max_ticks);
+    const uint8_t safe_team = (team_id == 0) ? 0 : 1;
+
+    // Remove any previous tactical override on this team at clamped_tick before rewinding
+    // so we compare against the baseline tactics active before clamped_tick.
+    checkpoints.remove_tactical_change_at(clamped_tick, safe_team);
+
+    if (!rollback_to_tick(state, recording, checkpoints, clamped_tick)) {
+        return false;
+    }
+
+    std::vector<MatchEvent> tactical_events;
+    apply_recorded_tactics_at_tick(state, checkpoints, state.tick, &tactical_events);
+
+    if (apply_tactical_change(state, safe_team, formation, defensive_line, pressing_intensity)) {
+        const TacticalConfig& applied = (safe_team == 0) ? state.home_tactics : state.away_tactics;
+        checkpoints.record_tactical_change(state.tick, safe_team, applied);
+        tactical_events.push_back(make_tactical_event(state, safe_team, applied));
+    }
+
+    if (!tactical_events.empty()) {
+        recording.add_events(tactical_events);
+    }
+
+    resume_simulation(state, recording, checkpoints, max_ticks);
+    return true;
+}
+
+bool MatchSimulator::rollback_and_resimulate(MatchState& state,
+                                             MatchRecording& recording,
+                                             CheckpointManager& checkpoints,
+                                             uint32_t target_tick,
+                                             const TacticalConfig* new_home_tactics,
+                                             const TacticalConfig* new_away_tactics,
+                                             uint32_t max_ticks) {
+    const uint32_t clamped_tick = std::min(target_tick, max_ticks);
+
+    if (new_home_tactics) {
+        checkpoints.remove_tactical_change_at(clamped_tick, 0);
+    }
+    if (new_away_tactics) {
+        checkpoints.remove_tactical_change_at(clamped_tick, 1);
+    }
+
+    if (!rollback_to_tick(state, recording, checkpoints, clamped_tick)) {
+        return false;
+    }
+
+    std::vector<MatchEvent> tactical_events;
+    apply_recorded_tactics_at_tick(state, checkpoints, state.tick, &tactical_events);
+
+    if (new_home_tactics && apply_tactical_change(state, 0, *new_home_tactics)) {
+        checkpoints.record_tactical_change(state.tick, 0, state.home_tactics);
+        tactical_events.push_back(make_tactical_event(state, 0, state.home_tactics));
+    }
+    if (new_away_tactics && apply_tactical_change(state, 1, *new_away_tactics)) {
+        checkpoints.record_tactical_change(state.tick, 1, state.away_tactics);
+        tactical_events.push_back(make_tactical_event(state, 1, state.away_tactics));
+    }
+
+    if (!tactical_events.empty()) {
+        recording.add_events(tactical_events);
+    }
+
+    resume_simulation(state, recording, checkpoints, max_ticks);
+    return true;
 }
 
 void MatchSimulator::run_sandbox_demo(MatchState& state, MatchRecording& recording, uint32_t ticks) {

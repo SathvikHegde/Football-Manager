@@ -1,4 +1,5 @@
 #include "fm/model/tactics.hpp"
+#include <algorithm>
 
 namespace fm {
 
@@ -124,6 +125,87 @@ RoleId get_formation_role(FormationId formation, uint8_t local_slot) {
             if (local_slot == 6 || local_slot == 7) return RoleId::Midfielder;
             return RoleId::Forward;
     }
+}
+
+namespace {
+
+void sync_team_roles(MatchState& state, uint8_t team_id, FormationId formation) {
+    const std::size_t start = (team_id == 0) ? 0 : 11;
+    for (std::size_t local = 0; local < 11; ++local) {
+        state.players[start + local].role = get_formation_role(formation, static_cast<uint8_t>(local));
+    }
+}
+
+} // namespace
+
+std::string_view formation_name(FormationId formation) noexcept {
+    switch (formation) {
+        case FormationId::F_433:  return "4-3-3";
+        case FormationId::F_4231: return "4-2-3-1";
+        case FormationId::F_352:  return "3-5-2";
+        case FormationId::F_532:  return "5-3-2";
+        case FormationId::F_442:
+        default:                  return "4-4-2";
+    }
+}
+
+FormationId sanitize_formation(int formation_id) noexcept {
+    switch (formation_id) {
+        case static_cast<int>(FormationId::F_442):  return FormationId::F_442;
+        case static_cast<int>(FormationId::F_433):  return FormationId::F_433;
+        case static_cast<int>(FormationId::F_4231): return FormationId::F_4231;
+        case static_cast<int>(FormationId::F_352):  return FormationId::F_352;
+        case static_cast<int>(FormationId::F_532):  return FormationId::F_532;
+        default:                                    return FormationId::F_442;
+    }
+}
+
+bool apply_tactical_change(MatchState& state,
+                           uint8_t team_id,
+                           FormationId formation,
+                           float defensive_line,
+                           float pressing_intensity) {
+    const uint8_t safe_team = (team_id == 0) ? 0 : 1;
+    TacticalConfig& current = (safe_team == 0) ? state.home_tactics : state.away_tactics;
+    TacticalConfig next = current;
+
+    const FormationId safe_form = sanitize_formation(static_cast<int>(formation));
+    if (safe_form != current.formation ||
+        (next.base_anchors_norm[0].x == 0.0f && next.base_anchors_norm[0].y == 0.0f)) {
+        next.formation = safe_form;
+        next.base_anchors_norm = get_default_tactics(safe_form).base_anchors_norm;
+    }
+
+    next.defensive_line = std::clamp(defensive_line, 0.0f, 1.0f);
+    next.pressing_intensity = std::clamp(pressing_intensity, 0.0f, 1.0f);
+
+    const bool changed = !(next == current);
+    current = next;
+    sync_team_roles(state, safe_team, current.formation);
+    return changed;
+}
+
+bool apply_tactical_change(MatchState& state,
+                           uint8_t team_id,
+                           const TacticalConfig& new_tactics) {
+    const uint8_t safe_team = (team_id == 0) ? 0 : 1;
+    TacticalConfig& current = (safe_team == 0) ? state.home_tactics : state.away_tactics;
+
+    TacticalConfig next = new_tactics;
+    next.formation = sanitize_formation(static_cast<int>(new_tactics.formation));
+    next.defensive_line = std::clamp(new_tactics.defensive_line, 0.0f, 1.0f);
+    next.pressing_intensity = std::clamp(new_tactics.pressing_intensity, 0.0f, 1.0f);
+    next.passing_directness = std::clamp(new_tactics.passing_directness, 0.0f, 1.0f);
+    next.tempo = std::clamp(new_tactics.tempo, 0.0f, 1.0f);
+
+    if (next.base_anchors_norm[0].x == 0.0f && next.base_anchors_norm[0].y == 0.0f) {
+        next.base_anchors_norm = get_default_tactics(next.formation).base_anchors_norm;
+    }
+
+    const bool changed = !(next == current);
+    current = next;
+    sync_team_roles(state, safe_team, current.formation);
+    return changed;
 }
 
 } // namespace fm

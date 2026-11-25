@@ -30,6 +30,8 @@ struct PlayerAgent {
     // Stage 2: Utility AI execution intent targets
     int8_t action_target_slot{-1};
     Vec2 action_target_pos{0.0f, 0.0f};
+
+    [[nodiscard]] constexpr bool operator==(const PlayerAgent& o) const = default;
 };
 
 } // namespace fm

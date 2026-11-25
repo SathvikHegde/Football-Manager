@@ -17,6 +17,8 @@ struct MatchEvent {
     int8_t secondary_slot{-1};
     Vec2 location{0.0f, 0.0f};
     float xg_value{0.0f};
+
+    [[nodiscard]] constexpr bool operator==(const MatchEvent& o) const = default;
 };
 
 } // namespace fm
