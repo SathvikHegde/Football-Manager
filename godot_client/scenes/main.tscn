@@ -1,7 +1,8 @@
-[gd_scene load_steps=3 format=3 uid="uid://b8yfq3c4main"]
+[gd_scene load_steps=4 format=3 uid="uid://b8yfq3c4main"]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="PackedScene" uid="uid://c7w3pitchview" path="res://scenes/pitch_view.tscn" id="2_pitch"]
+[ext_resource type="Script" path="res://scripts/match_hud.gd" id="3_hud"]
 
 [node name="Main" type="Node"]
 script = ExtResource("1_main")
@@ -14,9 +15,9 @@ script = ExtResource("1_main")
 anchors_preset = 10
 anchor_right = 1.0
 offset_left = 20.0
-offset_top = 10.0
+offset_top = 8.0
 offset_right = -20.0
-offset_bottom = 45.0
+offset_bottom = 42.0
 grow_horizontal = 2
 theme_override_constants/separation = 20
 
@@ -32,24 +33,15 @@ layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(0.7, 0.7, 0.7, 1)
 theme_override_font_sizes/font_size = 13
-text = "Stage 1: Headless Physics Sandbox (1,000 Ticks)"
-vertical_alignment = 1
-
-[node name="TimeLabel" type="Label" parent="UI/TopBar"]
-custom_minimum_size = Vector2(90, 0)
-layout_mode = 2
-theme_override_colors/font_color = Color(0.2, 1, 0.5, 1)
-theme_override_font_sizes/font_size = 16
-text = "00:00.00"
-horizontal_alignment = 1
+text = "Stage 2: 22-Player Match Engine"
 vertical_alignment = 1
 
 [node name="TickLabel" type="Label" parent="UI/TopBar"]
-custom_minimum_size = Vector2(130, 0)
+custom_minimum_size = Vector2(160, 0)
 layout_mode = 2
 theme_override_colors/font_color = Color(0.9, 0.9, 0.9, 1)
 theme_override_font_sizes/font_size = 14
-text = "Tick: 0 / 1000"
+text = "Tick: 0 / 108000"
 horizontal_alignment = 1
 vertical_alignment = 1
 
@@ -62,40 +54,115 @@ text = "60 FPS"
 horizontal_alignment = 2
 vertical_alignment = 1
 
-[node name="LegendPanel" type="PanelContainer" parent="UI"]
-offset_left = 25.0
-offset_top = 55.0
-offset_right = 235.0
-offset_bottom = 145.0
+[node name="MatchHUD" type="Control" parent="UI"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("3_hud")
 
-[node name="MarginContainer" type="MarginContainer" parent="UI/LegendPanel"]
+[node name="ScoreboardBar" type="PanelContainer" parent="UI/MatchHUD"]
+offset_left = 45.0
+offset_top = 46.0
+offset_right = 915.0
+offset_bottom = 86.0
+
+[node name="ScoreboardHBox" type="HBoxContainer" parent="UI/MatchHUD/ScoreboardBar"]
 layout_mode = 2
-theme_override_constants/margin_left = 8
-theme_override_constants/margin_top = 6
-theme_override_constants/margin_right = 8
-theme_override_constants/margin_bottom = 6
+theme_override_constants/separation = 18
+alignment = 1
 
-[node name="VBoxContainer" type="VBoxContainer" parent="UI/LegendPanel/MarginContainer"]
+[node name="HomeDot" type="Label" parent="UI/MatchHUD/ScoreboardBar/ScoreboardHBox"]
 layout_mode = 2
-theme_override_constants/separation = 4
+theme_override_colors/font_color = Color(0.25, 0.6, 1, 1)
+theme_override_font_sizes/font_size = 16
+text = "●"
+vertical_alignment = 1
 
-[node name="HomeLabel" type="Label" parent="UI/LegendPanel/MarginContainer/VBoxContainer"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.3, 0.65, 1, 1)
-theme_override_font_sizes/font_size = 12
-text = "● Home Team: Blue (#1-#11)"
-
-[node name="AwayLabel" type="Label" parent="UI/LegendPanel/MarginContainer/VBoxContainer"]
-layout_mode = 2
-theme_override_colors/font_color = Color(1, 0.35, 0.35, 1)
-theme_override_font_sizes/font_size = 12
-text = "● Away Team: Red (#1-#11)"
-
-[node name="BallLabel" type="Label" parent="UI/LegendPanel/MarginContainer/VBoxContainer"]
+[node name="ScoreLabel" type="Label" parent="UI/MatchHUD/ScoreboardBar/ScoreboardHBox"]
+custom_minimum_size = Vector2(210, 0)
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 1, 1, 1)
-theme_override_font_sizes/font_size = 12
-text = "○ Ball: 3D Height + Turf Shadow"
+theme_override_font_sizes/font_size = 18
+text = "HOME  0 - 0  AWAY"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="AwayDot" type="Label" parent="UI/MatchHUD/ScoreboardBar/ScoreboardHBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.3, 0.3, 1)
+theme_override_font_sizes/font_size = 16
+text = "●"
+vertical_alignment = 1
+
+[node name="ClockLabel" type="Label" parent="UI/MatchHUD/ScoreboardBar/ScoreboardHBox"]
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.25, 1, 0.55, 1)
+theme_override_font_sizes/font_size = 18
+text = "00:00"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="HalfLabel" type="Label" parent="UI/MatchHUD/ScoreboardBar/ScoreboardHBox"]
+custom_minimum_size = Vector2(85, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.85, 0.85, 0.9, 1)
+theme_override_font_sizes/font_size = 13
+text = "1ST HALF"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="PlayStateLabel" type="Label" parent="UI/MatchHUD/ScoreboardBar/ScoreboardHBox"]
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.45, 0.85, 1, 1)
+theme_override_font_sizes/font_size = 14
+text = "KICKOFF"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="EventPanel" type="PanelContainer" parent="UI/MatchHUD"]
+offset_left = 930.0
+offset_top = 46.0
+offset_right = 1260.0
+offset_bottom = 650.0
+
+[node name="Margin" type="MarginContainer" parent="UI/MatchHUD/EventPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 8
+
+[node name="VBox" type="VBoxContainer" parent="UI/MatchHUD/EventPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="HeaderLabel" type="Label" parent="UI/MatchHUD/EventPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.85, 0.2, 1)
+theme_override_font_sizes/font_size = 15
+text = "MATCH EVENT LOG"
+
+[node name="StatsLabel" type="Label" parent="UI/MatchHUD/EventPanel/Margin/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.85, 0.95, 1)
+theme_override_font_sizes/font_size = 11
+text = "Shots: 0 - 0  |  Saves: 0 - 0  |  Passes: 0 - 0"
+
+[node name="HSeparator" type="HSeparator" parent="UI/MatchHUD/EventPanel/Margin/VBox"]
+layout_mode = 2
+
+[node name="EventLog" type="RichTextLabel" parent="UI/MatchHUD/EventPanel/Margin/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_font_sizes/normal_font_size = 12
+bbcode_enabled = true
+scroll_following = true
 
 [node name="BottomBar" type="HBoxContainer" parent="UI"]
 anchors_preset = 12
@@ -108,10 +175,10 @@ offset_right = -20.0
 offset_bottom = -15.0
 grow_horizontal = 2
 grow_vertical = 0
-theme_override_constants/separation = 12
+theme_override_constants/separation = 10
 
 [node name="PlayPauseButton" type="Button" parent="UI/BottomBar"]
-custom_minimum_size = Vector2(90, 0)
+custom_minimum_size = Vector2(85, 0)
 layout_mode = 2
 text = "⏸ Pause"
 
@@ -126,15 +193,20 @@ layout_mode = 2
 text = "⏭"
 
 [node name="RestartButton" type="Button" parent="UI/BottomBar"]
-custom_minimum_size = Vector2(90, 0)
+custom_minimum_size = Vector2(85, 0)
 layout_mode = 2
 text = "↺ Restart"
+
+[node name="NewSeedButton" type="Button" parent="UI/BottomBar"]
+custom_minimum_size = Vector2(95, 0)
+layout_mode = 2
+text = "🎲 New Seed"
 
 [node name="ScrubSlider" type="HSlider" parent="UI/BottomBar"]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 4
-max_value = 999.0
+max_value = 107999.0
 
 [node name="SpeedOptionButton" type="OptionButton" parent="UI/BottomBar"]
 custom_minimum_size = Vector2(110, 0)

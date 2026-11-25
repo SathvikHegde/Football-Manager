@@ -26,7 +26,10 @@ struct PlayerAgent {
     uint16_t action_cooldown_ticks{0};
     Vec2 move_target{0.0f, 0.0f};
     PlayerAttributes attrs{};
+
+    // Stage 2: Utility AI execution intent targets
+    int8_t action_target_slot{-1};
+    Vec2 action_target_pos{0.0f, 0.0f};
 };
 
 } // namespace fm
-

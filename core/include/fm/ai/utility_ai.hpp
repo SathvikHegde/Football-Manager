@@ -9,4 +9,3 @@ void evaluate_agent_utility(MatchState& state, uint8_t player_index);
 
 } // namespace AI
 } // namespace fm
-

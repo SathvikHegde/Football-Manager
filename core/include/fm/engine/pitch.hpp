@@ -1,4 +1,6 @@
 #pragma once
+#include <cstdint>
+#include <cmath>
 #include "fm/math/vec2.hpp"
 
 namespace fm {
@@ -23,7 +25,28 @@ namespace Pitch {
         return pos.x >= -HALF_LENGTH && pos.x <= HALF_LENGTH &&
                pos.y >= -HALF_WIDTH && pos.y <= HALF_WIDTH;
     }
+
+    // Returns +1.0f if attacking +X, -1.0f if attacking -X.
+    // Home (team_id 0) attacks +X in half 1 and -X in half 2.
+    [[nodiscard]] constexpr float attack_direction(uint8_t team_id, uint8_t half) {
+        bool attacks_pos_x = (team_id == 0) ? (half == 1) : (half != 1);
+        return attacks_pos_x ? 1.0f : -1.0f;
+    }
+
+    [[nodiscard]] constexpr float own_goal_x(uint8_t team_id, uint8_t half) {
+        return -attack_direction(team_id, half) * HALF_LENGTH;
+    }
+
+    [[nodiscard]] constexpr float target_goal_x(uint8_t team_id, uint8_t half) {
+        return attack_direction(team_id, half) * HALF_LENGTH;
+    }
+
+    [[nodiscard]] inline bool is_in_own_penalty_area(const Vec2& pos, uint8_t team_id, uint8_t half) {
+        float gx = own_goal_x(team_id, half);
+        float dist_from_line = (gx < 0.0f) ? (pos.x - gx) : (gx - pos.x);
+        return dist_from_line >= 0.0f && dist_from_line <= PENALTY_AREA_LENGTH &&
+               std::abs(pos.y) <= HALF_PENALTY_AREA_WIDTH;
+    }
 }
 
 } // namespace fm
-

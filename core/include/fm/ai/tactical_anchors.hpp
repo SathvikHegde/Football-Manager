@@ -9,8 +9,9 @@ namespace AI {
 Vec2 compute_dynamic_anchor(const TacticalConfig& tactics,
                             uint8_t player_slot,
                             const Vec2& ball_pos,
-                            bool in_possession);
+                            bool in_possession,
+                            float attack_dir = 1.0f,
+                            RoleId role = RoleId::Midfielder);
 
 } // namespace AI
 } // namespace fm
-

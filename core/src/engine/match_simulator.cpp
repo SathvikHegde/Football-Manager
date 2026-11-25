@@ -3,29 +3,476 @@
 #include "fm/engine/player_kinematics.hpp"
 #include "fm/engine/rules.hpp"
 #include "fm/engine/pitch.hpp"
+#include "fm/model/tactics.hpp"
+#include "fm/ai/team_phase.hpp"
+#include "fm/ai/tactical_anchors.hpp"
+#include "fm/ai/utility_ai.hpp"
+#include "fm/ai/goalkeeper_ai.hpp"
+#include "fm/ai/execution.hpp"
 #include <cmath>
 #include <array>
 #include <algorithm>
 
 namespace fm {
 
+namespace {
+
+void ensure_players_initialized(MatchState& state) {
+    // Check if MatchState was default-constructed without initialize_match()
+    if (state.players[11].team_id == 1 && state.players[11].slot_index == 11) {
+        return;
+    }
+
+    if (state.home_tactics.base_anchors_norm[0].x == 0.0f && state.home_tactics.base_anchors_norm[0].y == 0.0f) {
+        state.home_tactics = get_default_tactics(state.home_tactics.formation);
+    }
+    if (state.away_tactics.base_anchors_norm[0].x == 0.0f && state.away_tactics.base_anchors_norm[0].y == 0.0f) {
+        state.away_tactics = get_default_tactics(state.away_tactics.formation);
+    }
+
+    for (std::size_t i = 0; i < 22; ++i) {
+        auto& p = state.players[i];
+        p.slot_index = static_cast<uint8_t>(i);
+        p.player_id = static_cast<uint32_t>(100 + i);
+        p.team_id = (i < 11) ? 0 : 1;
+        const auto& tactics = (p.team_id == 0) ? state.home_tactics : state.away_tactics;
+        p.role = get_formation_role(tactics.formation, static_cast<uint8_t>(i % 11));
+        p.stamina_pct = 1.0f;
+    }
+}
+
+Vec2 enforce_exclusion_zone(const Vec2& target, const Vec2& spot, float min_radius) {
+    Vec2 delta = target - spot;
+    float d = delta.length();
+    if (d < min_radius) {
+        Vec2 push_dir = (d > 0.01f) ? delta.normalized() : Vec2{0.0f, 1.0f};
+        if (spot.x > Pitch::HALF_LENGTH - 5.0f && push_dir.x > 0.0f) push_dir.x = -push_dir.x;
+        if (spot.x < -Pitch::HALF_LENGTH + 5.0f && push_dir.x < 0.0f) push_dir.x = -push_dir.x;
+        if (spot.y > Pitch::HALF_WIDTH - 5.0f && push_dir.y > 0.0f) push_dir.y = -push_dir.y;
+        if (spot.y < -Pitch::HALF_WIDTH + 5.0f && push_dir.y < 0.0f) push_dir.y = -push_dir.y;
+        push_dir = push_dir.normalized();
+        Vec2 adjusted = spot + push_dir * min_radius;
+        adjusted.x = std::clamp(adjusted.x, -Pitch::HALF_LENGTH + 1.5f, Pitch::HALF_LENGTH - 1.5f);
+        adjusted.y = std::clamp(adjusted.y, -Pitch::HALF_WIDTH + 1.5f, Pitch::HALF_WIDTH - 1.5f);
+        return adjusted;
+    }
+    return target;
+}
+
+void step_player_with_bounds(PlayerAgent& player, const Vec2& target_pos, float dt, bool is_ball_carrier) {
+    PlayerKinematics::step(player, target_pos, dt);
+
+    // Dribbling speed modulation for ball carrier
+    if (is_ball_carrier) {
+        const float carry_factor = 0.80f + 0.14f * player.attrs.norm(player.attrs.dribbling);
+        const float max_carry_speed = PlayerKinematics::calculate_max_speed(player.attrs, player.stamina_pct) * carry_factor;
+        const float speed = player.velocity.length();
+        if (speed > max_carry_speed && speed > 0.01f) {
+            player.velocity = player.velocity.normalized() * max_carry_speed;
+        }
+    }
+
+    // Keep all agents safely within pitch apron bounds
+    player.position.x = std::clamp(player.position.x, -Pitch::HALF_LENGTH - 1.5f, Pitch::HALF_LENGTH + 1.5f);
+    player.position.y = std::clamp(player.position.y, -Pitch::HALF_WIDTH - 1.5f, Pitch::HALF_WIDTH + 1.5f);
+}
+
+void update_stamina(PlayerAgent& player, float dt) {
+    const float speed_ratio = std::clamp(player.velocity.length() / 9.2f, 0.0f, 1.0f);
+    const float stamina_resilience = 1.25f - 0.55f * player.attrs.norm(player.attrs.stamina);
+    const float drain_rate = (0.000030f + 0.000060f * speed_ratio) * stamina_resilience;
+    player.stamina_pct = std::clamp(player.stamina_pct - drain_rate * dt, 0.15f, 1.0f);
+}
+
+void sync_ball_to_carrier(MatchState& state) {
+    if (state.ball.owner_slot < 0 || state.ball.owner_slot >= 22) return;
+    const auto& carrier = state.players[static_cast<std::size_t>(state.ball.owner_slot)];
+    const Vec2 dir{std::cos(carrier.facing_rad), std::sin(carrier.facing_rad)};
+    state.ball.position = Vec3{carrier.position.x + dir.x * 0.55f, carrier.position.y + dir.y * 0.55f, 0.0f};
+    state.ball.velocity = Vec3{carrier.velocity.x, carrier.velocity.y, 0.0f};
+}
+
+} // namespace
+
 void MatchSimulator::reset(uint64_t /*seed*/) {
     recent_events_.clear();
-    // Default reset for simulation state
+}
+
+void MatchSimulator::initialize_match(MatchState& state,
+                                      uint64_t seed,
+                                      FormationId home_formation,
+                                      FormationId away_formation) {
+    recent_events_.clear();
+    state = MatchState{};
+    state.rng = RngState(seed);
+    state.half = 1;
+    state.tick = 0;
+    state.home_tactics = get_default_tactics(home_formation);
+    state.away_tactics = get_default_tactics(away_formation);
+
+    for (std::size_t i = 0; i < 22; ++i) {
+        auto& p = state.players[i];
+        p.slot_index = static_cast<uint8_t>(i);
+        p.player_id = static_cast<uint32_t>(100 + i);
+        p.team_id = (i < 11) ? 0 : 1;
+        const auto& tactics = (p.team_id == 0) ? state.home_tactics : state.away_tactics;
+        p.role = get_formation_role(tactics.formation, static_cast<uint8_t>(i % 11));
+        p.stamina_pct = 1.0f;
+
+        // Assign balanced role-appropriate baseline attributes (1..20 scale around 10..14)
+        p.attrs = PlayerAttributes{};
+        if (p.role == RoleId::Goalkeeper) {
+            p.attrs.positioning = 13;
+            p.attrs.acceleration = 12;
+            p.attrs.passing = 11;
+            p.attrs.decisions = 12;
+        } else if (p.role == RoleId::CenterBack) {
+            p.attrs.tackling = 13;
+            p.attrs.positioning = 13;
+            p.attrs.pace = 10;
+            p.attrs.passing = 10;
+            p.attrs.shooting = 6;
+        } else if (p.role == RoleId::FullBack) {
+            p.attrs.pace = 12;
+            p.attrs.stamina = 13;
+            p.attrs.tackling = 12;
+            p.attrs.passing = 11;
+        } else if (p.role == RoleId::Midfielder) {
+            p.attrs.passing = 13;
+            p.attrs.vision = 13;
+            p.attrs.decisions = 12;
+            p.attrs.stamina = 12;
+        } else if (p.role == RoleId::Winger) {
+            p.attrs.pace = 14;
+            p.attrs.acceleration = 13;
+            p.attrs.dribbling = 13;
+            p.attrs.passing = 11;
+        } else if (p.role == RoleId::Forward) {
+            p.attrs.shooting = 14;
+            p.attrs.dribbling = 12;
+            p.attrs.pace = 13;
+            p.attrs.decisions = 12;
+        }
+    }
+
+    MatchRules::setup_kickoff(state, 0);
 }
 
 void MatchSimulator::step_tick(MatchState& state) {
     recent_events_.clear();
 
-    // Layer 1: Clock & Rules
+    if (state.play_state == PlayState::FullTime) {
+        return;
+    }
+
+    ensure_players_initialized(state);
+
+    // =========================================================================
+    // LAYER 1: MATCH FLOW, CLOCK & RULES
+    // =========================================================================
     state.tick++;
     MatchRules::evaluate(state, recent_events_);
 
-    // Layer 4: Ball Physics & Player Kinematics
+    if (state.play_state == PlayState::FullTime) {
+        return;
+    }
+
+    // Waiting states: GoalScored / HalfTime
+    if (state.play_state == PlayState::GoalScored || state.play_state == PlayState::HalfTime) {
+        BallPhysics::step(state.ball, Pitch::DT);
+        if (state.play_state == PlayState::GoalScored) {
+            // Goal net containment (net extends ~2.2m behind goal line)
+            constexpr float NET_MAX_X = Pitch::HALF_LENGTH + 2.2f;
+            constexpr float NET_MAX_Y = Pitch::HALF_GOAL_WIDTH - 0.15f;
+            if (std::abs(state.ball.position.x) > NET_MAX_X) {
+                state.ball.position.x = (state.ball.position.x > 0.0f) ? NET_MAX_X : -NET_MAX_X;
+                state.ball.velocity.x *= -0.15f;
+                state.ball.velocity.y *= 0.4f;
+            }
+            if (std::abs(state.ball.position.y) > NET_MAX_Y) {
+                state.ball.position.y = (state.ball.position.y > 0.0f) ? NET_MAX_Y : -NET_MAX_Y;
+                state.ball.velocity.y *= -0.15f;
+            }
+        }
+        for (auto& p : state.players) {
+            step_player_with_bounds(p, p.position, Pitch::DT, false);
+        }
+        return;
+    }
+
+    // Set-Piece waiting states: Kickoff, ThrowIn, GoalKick, Corner
+    if (state.play_state == PlayState::Kickoff ||
+        state.play_state == PlayState::ThrowIn ||
+        state.play_state == PlayState::GoalKick ||
+        state.play_state == PlayState::Corner) {
+
+        const Vec2 ball_2d{state.ball.position.x, state.ball.position.y};
+        for (std::size_t i = 0; i < 22; ++i) {
+            auto& p = state.players[i];
+            if (static_cast<int8_t>(i) == state.restart_taker_slot) {
+                step_player_with_bounds(p, state.restart_spot, Pitch::DT, false);
+            } else {
+                const auto& tactics = (p.team_id == 0) ? state.home_tactics : state.away_tactics;
+                const float attack_dir = Pitch::attack_direction(p.team_id, state.half);
+                Vec2 target = AI::compute_dynamic_anchor(
+                    tactics, p.slot_index, ball_2d,
+                    static_cast<int8_t>(p.team_id) == state.restart_team,
+                    attack_dir, p.role);
+
+                if (state.play_state == PlayState::Kickoff) {
+                    if (target.x * attack_dir > -2.5f) {
+                        target.x = -2.5f * attack_dir;
+                    }
+                }
+                target = enforce_exclusion_zone(target, state.restart_spot, Pitch::CENTER_CIRCLE_RADIUS + 0.5f);
+                step_player_with_bounds(p, target, Pitch::DT, false);
+            }
+        }
+        return;
+    }
+
+    // =========================================================================
+    // LAYER 2: TEAM PHASE CLASSIFICATION
+    // =========================================================================
+    (void)AI::classify_phase(state, 0);
+    (void)AI::classify_phase(state, 1);
+
+    // =========================================================================
+    // LAYER 3: AGENT UTILITY AI & GOALKEEPER AI
+    // =========================================================================
+    for (std::size_t i = 0; i < 22; ++i) {
+        if (state.players[i].action_cooldown_ticks > 0) {
+            state.players[i].action_cooldown_ticks--;
+        }
+    }
+
+    AI::update_goalkeeper_position(state, 0);
+    AI::update_goalkeeper_position(state, 11);
+
+    // GK evaluates distribution immediately when holding the ball
+    if ((state.ball.owner_slot == 0 || state.ball.owner_slot == 11) &&
+        state.players[static_cast<std::size_t>(state.ball.owner_slot)].action_cooldown_ticks == 0) {
+        AI::evaluate_agent_utility(state, static_cast<uint8_t>(state.ball.owner_slot));
+    }
+
+    const Vec2 ball_2d{state.ball.position.x, state.ball.position.y};
+    for (uint8_t i = 0; i < 22; ++i) {
+        if (i == 0 || i == 11) continue; // GKs already updated above
+        auto& p = state.players[i];
+
+        if (p.action_cooldown_ticks > 0) {
+            p.current_action = ActionType::Idle;
+            p.move_target = p.position;
+            continue;
+        }
+
+        const bool is_owner = (state.ball.owner_slot == static_cast<int8_t>(i));
+        const bool owner_needs_decision = is_owner &&
+            (p.current_action != ActionType::Pass &&
+             p.current_action != ActionType::Shoot &&
+             p.current_action != ActionType::Dribble &&
+             p.current_action != ActionType::Shield);
+        const bool possession_interrupt = (state.possession_change_tick == state.tick);
+        const bool loose_near_interrupt = (state.ball.owner_slot == -1) &&
+            ((p.position - ball_2d).length_sq() < 100.0f) &&
+            (p.current_action != ActionType::Intercept);
+        const bool cadence_tick = ((state.tick + i) % 4 == 0);
+
+        if (cadence_tick || owner_needs_decision || possession_interrupt || loose_near_interrupt) {
+            AI::evaluate_agent_utility(state, i);
+        }
+    }
+
+    // =========================================================================
+    // LAYER 4: EXECUTION, BALL PHYSICS, KINEMATICS & CONTESTED POSSESSION
+    // =========================================================================
+    if (state.ball.owner_slot >= 0 && state.ball.owner_slot < 22) {
+        const uint8_t owner = static_cast<uint8_t>(state.ball.owner_slot);
+        if (state.players[owner].action_cooldown_ticks == 0) {
+            AI::execute_action(state, owner, recent_events_);
+        }
+    }
+
+    // Step 3D ball physics (only moves ball when owner_slot < 0)
     BallPhysics::step(state.ball, Pitch::DT);
 
-    for (auto& player : state.players) {
-        PlayerKinematics::step(player, player.move_target, Pitch::DT);
+    // Goalkeeper shot reaction & dive intercept
+    if (state.shot_active) {
+        if (!AI::resolve_shot_intercept(state, 0, recent_events_)) {
+            AI::resolve_shot_intercept(state, 11, recent_events_);
+        }
+        if (state.ball.velocity.length_sq() < 9.0f) {
+            state.shot_active = false;
+        }
+    }
+
+    // Step 2D kinematics and stamina for all 22 players
+    for (std::size_t i = 0; i < 22; ++i) {
+        auto& p = state.players[i];
+        const bool is_carrier = (state.ball.owner_slot == static_cast<int8_t>(i));
+        const ActionType prev_action = p.current_action;
+        step_player_with_bounds(p, p.move_target, Pitch::DT, is_carrier);
+        update_stamina(p, Pitch::DT);
+
+        if (is_carrier && prev_action == ActionType::Dribble && (state.tick % 20 == 0)) {
+            MatchEvent dribble_evt{};
+            dribble_evt.tick = state.tick;
+            dribble_evt.type = EventType::Dribble;
+            dribble_evt.primary_slot = static_cast<int8_t>(i);
+            dribble_evt.location = p.position;
+            recent_events_.push_back(dribble_evt);
+        }
+    }
+
+    // Contested Tackling (defender within 1.2m of ball carrier)
+    if (state.ball.owner_slot >= 0 && state.ball.owner_slot < 22) {
+        auto& carrier = state.players[static_cast<std::size_t>(state.ball.owner_slot)];
+        const int8_t opp_start = (carrier.team_id == 0) ? 11 : 0;
+
+        for (int8_t o = opp_start; o < opp_start + 11; ++o) {
+            auto& def = state.players[static_cast<std::size_t>(o)];
+            if (def.action_cooldown_ticks > 0) continue;
+            if ((def.position - carrier.position).length() < 1.2f) {
+                const float p_success = std::clamp(
+                    0.50f + 0.35f * def.attrs.norm(def.attrs.tackling) - 0.30f * carrier.attrs.norm(carrier.attrs.dribbling),
+                    0.10f, 0.90f);
+
+                if (state.rng.next_float() < p_success) {
+                    Vec2 deflect_dir = Vec2{std::cos(def.facing_rad), std::sin(def.facing_rad)};
+                    if (deflect_dir.length_sq() < 0.01f) {
+                        deflect_dir = Vec2{Pitch::attack_direction(def.team_id, state.half), 0.0f};
+                    }
+                    const float impulse = 4.0f + 3.0f * state.rng.next_float();
+                    state.ball.owner_slot = -1;
+                    state.ball.velocity = Vec3{deflect_dir.x * impulse, deflect_dir.y * impulse, 0.7f};
+                    state.ball.claim_lock_ticks = 3;
+                    state.ball.last_touch_slot = o;
+                    state.ball.last_touch_team = static_cast<int8_t>(def.team_id);
+                    state.shot_active = false;
+                    state.possession_change_tick = state.tick;
+
+                    carrier.action_cooldown_ticks = 10; // 0.5s stun
+                    carrier.current_action = ActionType::Idle;
+
+                    MatchEvent tackle_evt{};
+                    tackle_evt.tick = state.tick;
+                    tackle_evt.type = EventType::TackleWon;
+                    tackle_evt.primary_slot = o;
+                    tackle_evt.secondary_slot = static_cast<int8_t>(carrier.slot_index);
+                    tackle_evt.location = carrier.position;
+                    recent_events_.push_back(tackle_evt);
+                } else {
+                    def.action_cooldown_ticks = 12; // 0.6s recover
+                    def.current_action = ActionType::Idle;
+                }
+                break; // One tackle contest resolved per tick
+            }
+        }
+    }
+
+    // Loose Ball Claim & Pass Completion / Interception
+    if (state.ball.owner_slot == -1 && state.ball.claim_lock_ticks == 0 && state.ball.position.z < 1.8f) {
+        const Vec2 b2{state.ball.position.x, state.ball.position.y};
+        int8_t claimer = -1;
+        float best_dist_sq = 1e9f;
+
+        for (std::size_t i = 0; i < 22; ++i) {
+            const auto& p = state.players[i];
+            if (p.action_cooldown_ticks > 0) continue;
+
+            const bool gk_in_box = (p.role == RoleId::Goalkeeper) && Pitch::is_in_own_penalty_area(b2, p.team_id, state.half);
+            const float control_radius = gk_in_box ? 1.25f : 0.90f;
+            const float d2 = (p.position - b2).length_sq();
+            if (d2 < control_radius * control_radius && d2 < best_dist_sq) {
+                best_dist_sq = d2;
+                claimer = static_cast<int8_t>(i);
+            }
+        }
+
+        if (claimer >= 0) {
+            auto& p = state.players[static_cast<std::size_t>(claimer)];
+            if (state.ball.last_touch_team == static_cast<int8_t>(p.team_id) &&
+                state.ball.last_touch_slot >= 0 &&
+                state.ball.last_touch_slot != claimer) {
+                MatchEvent comp_evt{};
+                comp_evt.tick = state.tick;
+                comp_evt.type = EventType::PassComplete;
+                comp_evt.primary_slot = state.ball.last_touch_slot;
+                comp_evt.secondary_slot = claimer;
+                comp_evt.location = p.position;
+                recent_events_.push_back(comp_evt);
+            } else if (state.ball.last_touch_team >= 0 &&
+                       state.ball.last_touch_team != static_cast<int8_t>(p.team_id)) {
+                MatchEvent int_evt{};
+                int_evt.tick = state.tick;
+                int_evt.type = EventType::PassIntercepted;
+                int_evt.primary_slot = claimer;
+                int_evt.secondary_slot = state.ball.last_touch_slot;
+                int_evt.location = p.position;
+                recent_events_.push_back(int_evt);
+                state.possession_change_tick = state.tick;
+            }
+
+            state.ball.owner_slot = claimer;
+            state.ball.last_touch_slot = claimer;
+            state.ball.last_touch_team = static_cast<int8_t>(p.team_id);
+            state.ball.velocity = Vec3{0.0f, 0.0f, 0.0f};
+            state.ball.position.z = 0.0f;
+            state.shot_active = false;
+            state.stuck_ball_ticks = 0;
+            if (state.last_possessing_team != static_cast<int8_t>(p.team_id)) {
+                state.last_possessing_team = static_cast<int8_t>(p.team_id);
+                state.possession_change_tick = state.tick;
+            }
+        }
+    }
+
+    // Deadlock guard: prevent a stationary loose ball from ever stalling play indefinitely
+    if (state.ball.owner_slot == -1) {
+        const Vec2 b2{state.ball.position.x, state.ball.position.y};
+        if ((b2 - state.last_ball_check_pos).length_sq() < 0.01f && state.ball.velocity.length_sq() < 0.1f) {
+            state.stuck_ball_ticks++;
+            if (state.stuck_ball_ticks > 120) {
+                // Assign closest non-stunned player to kick/move ball forward
+                int8_t nearest = 0;
+                float best_d2 = 1e9f;
+                for (int8_t i = 0; i < 22; ++i) {
+                    const float d2 = (state.players[static_cast<std::size_t>(i)].position - b2).length_sq();
+                    if (d2 < best_d2) {
+                        best_d2 = d2;
+                        nearest = i;
+                    }
+                }
+                state.players[static_cast<std::size_t>(nearest)].move_target = b2;
+                state.players[static_cast<std::size_t>(nearest)].action_cooldown_ticks = 0;
+                if (best_d2 < 2.25f) {
+                    state.ball.owner_slot = nearest;
+                    state.ball.last_touch_slot = nearest;
+                    state.ball.last_touch_team = static_cast<int8_t>(state.players[static_cast<std::size_t>(nearest)].team_id);
+                    state.stuck_ball_ticks = 0;
+                }
+            }
+        } else {
+            state.stuck_ball_ticks = 0;
+            state.last_ball_check_pos = b2;
+        }
+    } else {
+        state.stuck_ball_ticks = 0;
+    }
+
+    sync_ball_to_carrier(state);
+}
+
+void MatchSimulator::simulate_match(MatchState& state, MatchRecording& recording, uint32_t max_ticks) {
+    recording.clear();
+    recording.reserve(max_ticks);
+
+    while (state.tick < max_ticks && state.play_state != PlayState::FullTime) {
+        step_tick(state);
+        recording.add_frame(FrameSnapshot::from_state(state), state);
+        if (!recent_events_.empty()) {
+            recording.add_events(recent_events_);
+        }
     }
 }
 
@@ -39,14 +486,12 @@ void MatchSimulator::run_sandbox_demo(MatchState& state, MatchRecording& recordi
     state.score_home = 0;
     state.score_away = 0;
 
-    // Initial ball placement and trajectory (kept cleanly within pitch boundaries)
     state.ball.position = Vec3{0.0f, 0.0f, 0.0f};
     state.ball.velocity = Vec3{10.0f, 5.0f, 8.5f};
     state.ball.owner_slot = -1;
     state.ball.last_touch_slot = 9;
     state.ball.last_touch_team = 0;
 
-    // Player orbital configuration (Center X, Center Y, Radius, Angular Speed, Initial Phase)
     struct OrbitConfig {
         Vec2 center;
         float radius;
@@ -57,31 +502,29 @@ void MatchSimulator::run_sandbox_demo(MatchState& state, MatchRecording& recordi
 
     constexpr float PI = 3.14159265358979323846f;
     std::array<OrbitConfig, 22> orbits = {{
-        // Home Team (0..10)
-        { {-48.0f,   0.0f},  3.0f, 0.40f, 0.0f * PI, RoleId::Goalkeeper }, // 0: GK
-        { {-30.0f, -22.0f},  8.0f, 0.50f, 0.2f * PI, RoleId::FullBack },   // 1: LB
-        { {-32.0f,  -8.0f},  7.0f, 0.60f, 0.4f * PI, RoleId::CenterBack }, // 2: CB
-        { {-32.0f,   8.0f},  7.0f, 0.60f, 0.6f * PI, RoleId::CenterBack }, // 3: CB
-        { {-30.0f,  22.0f},  8.0f, 0.50f, 0.8f * PI, RoleId::FullBack },   // 4: RB
-        { {-12.0f, -20.0f},  9.0f, 0.70f, 1.0f * PI, RoleId::Winger },     // 5: LM
-        { {-14.0f,  -6.0f}, 10.0f, 0.65f, 1.2f * PI, RoleId::Midfielder }, // 6: CM
-        { {-14.0f,   6.0f}, 10.0f, 0.65f, 1.4f * PI, RoleId::Midfielder }, // 7: CM
-        { {-12.0f,  20.0f},  9.0f, 0.70f, 1.6f * PI, RoleId::Winger },     // 8: RM
-        { {  2.0f,  -8.0f}, 11.0f, 0.80f, 1.8f * PI, RoleId::Forward },    // 9: CF
-        { {  2.0f,   8.0f}, 11.0f, 0.80f, 0.1f * PI, RoleId::Forward },    // 10: CF
+        { {-48.0f,   0.0f},  3.0f, 0.40f, 0.0f * PI, RoleId::Goalkeeper },
+        { {-30.0f, -22.0f},  8.0f, 0.50f, 0.2f * PI, RoleId::FullBack },
+        { {-32.0f,  -8.0f},  7.0f, 0.60f, 0.4f * PI, RoleId::CenterBack },
+        { {-32.0f,   8.0f},  7.0f, 0.60f, 0.6f * PI, RoleId::CenterBack },
+        { {-30.0f,  22.0f},  8.0f, 0.50f, 0.8f * PI, RoleId::FullBack },
+        { {-12.0f, -20.0f},  9.0f, 0.70f, 1.0f * PI, RoleId::Winger },
+        { {-14.0f,  -6.0f}, 10.0f, 0.65f, 1.2f * PI, RoleId::Midfielder },
+        { {-14.0f,   6.0f}, 10.0f, 0.65f, 1.4f * PI, RoleId::Midfielder },
+        { {-12.0f,  20.0f},  9.0f, 0.70f, 1.6f * PI, RoleId::Winger },
+        { {  2.0f,  -8.0f}, 11.0f, 0.80f, 1.8f * PI, RoleId::Forward },
+        { {  2.0f,   8.0f}, 11.0f, 0.80f, 0.1f * PI, RoleId::Forward },
 
-        // Away Team (11..21)
-        { { 48.0f,   0.0f},  3.0f, 0.40f, 1.0f * PI, RoleId::Goalkeeper }, // 11: GK
-        { { 30.0f, -22.0f},  8.0f, 0.50f, 1.2f * PI, RoleId::FullBack },   // 12: RB
-        { { 32.0f,  -8.0f},  7.0f, 0.60f, 1.4f * PI, RoleId::CenterBack }, // 13: CB
-        { { 32.0f,   8.0f},  7.0f, 0.60f, 1.6f * PI, RoleId::CenterBack }, // 14: CB
-        { { 30.0f,  22.0f},  8.0f, 0.50f, 1.8f * PI, RoleId::FullBack },   // 15: LB
-        { { 12.0f, -20.0f},  9.0f, 0.70f, 0.0f * PI, RoleId::Winger },     // 16: RM
-        { { 14.0f,  -6.0f}, 10.0f, 0.65f, 0.2f * PI, RoleId::Midfielder }, // 17: CM
-        { { 14.0f,   6.0f}, 10.0f, 0.65f, 0.4f * PI, RoleId::Midfielder }, // 18: CM
-        { { 12.0f,  20.0f},  9.0f, 0.70f, 0.6f * PI, RoleId::Winger },     // 19: LM
-        { { -2.0f,  -8.0f}, 11.0f, 0.80f, 0.8f * PI, RoleId::Forward },    // 20: CF
-        { { -2.0f,   8.0f}, 11.0f, 0.80f, 1.0f * PI, RoleId::Forward }     // 21: CF
+        { { 48.0f,   0.0f},  3.0f, 0.40f, 1.0f * PI, RoleId::Goalkeeper },
+        { { 30.0f, -22.0f},  8.0f, 0.50f, 1.2f * PI, RoleId::FullBack },
+        { { 32.0f,  -8.0f},  7.0f, 0.60f, 1.4f * PI, RoleId::CenterBack },
+        { { 32.0f,   8.0f},  7.0f, 0.60f, 1.6f * PI, RoleId::CenterBack },
+        { { 30.0f,  22.0f},  8.0f, 0.50f, 1.8f * PI, RoleId::FullBack },
+        { { 12.0f, -20.0f},  9.0f, 0.70f, 0.0f * PI, RoleId::Winger },
+        { { 14.0f,  -6.0f}, 10.0f, 0.65f, 0.2f * PI, RoleId::Midfielder },
+        { { 14.0f,   6.0f}, 10.0f, 0.65f, 0.4f * PI, RoleId::Midfielder },
+        { { 12.0f,  20.0f},  9.0f, 0.70f, 0.6f * PI, RoleId::Winger },
+        { { -2.0f,  -8.0f}, 11.0f, 0.80f, 0.8f * PI, RoleId::Forward },
+        { { -2.0f,   8.0f}, 11.0f, 0.80f, 1.0f * PI, RoleId::Forward }
     }};
 
     for (std::size_t i = 0; i < 22; ++i) {
@@ -105,11 +548,9 @@ void MatchSimulator::run_sandbox_demo(MatchState& state, MatchRecording& recordi
         p.move_target = p.position;
     }
 
-    // Step simulation across ticks
     for (uint32_t t = 0; t < ticks; ++t) {
         float time_sec = static_cast<float>(t) * Pitch::DT;
 
-        // Apply scripted kicks at specific intervals to exhibit multi-phase ball physics
         if (t == 180) {
             state.ball.position.z = 0.0f;
             state.ball.velocity = Vec3{-15.0f, -6.0f, 6.0f};
@@ -124,10 +565,8 @@ void MatchSimulator::run_sandbox_demo(MatchState& state, MatchRecording& recordi
             state.ball.velocity = Vec3{12.0f, -6.0f, 6.5f};
         }
 
-        // Step 3D ball physics
         BallPhysics::step(state.ball, Pitch::DT);
 
-        // Update 2D player kinematics along circular/orbital paths
         for (std::size_t i = 0; i < 22; ++i) {
             auto& p = state.players[i];
             const auto& orb = orbits[i];
@@ -137,11 +576,9 @@ void MatchSimulator::run_sandbox_demo(MatchState& state, MatchRecording& recordi
             p.stamina_pct = std::max(0.70f, 1.0f - (0.15f * (static_cast<float>(t) / static_cast<float>(ticks))));
         }
 
-        // Capture frame snapshot into contiguous recording buffer
-        recording.add_frame(FrameSnapshot::from_state(state));
+        recording.add_frame(FrameSnapshot::from_state(state), state);
         state.tick++;
     }
 }
 
 } // namespace fm
-

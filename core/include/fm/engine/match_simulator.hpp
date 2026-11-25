@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include <cstdint>
+#include "fm/engine/pitch.hpp"
 #include "fm/model/match_state.hpp"
 #include "fm/model/match_event.hpp"
 #include "fm/recording/match_recording.hpp"
@@ -12,7 +13,12 @@ public:
     MatchSimulator() = default;
 
     void reset(uint64_t seed = 12345);
+    void initialize_match(MatchState& state,
+                          uint64_t seed = 12345,
+                          FormationId home_formation = FormationId::F_442,
+                          FormationId away_formation = FormationId::F_442);
     void step_tick(MatchState& state);
+    void simulate_match(MatchState& state, MatchRecording& recording, uint32_t max_ticks = Pitch::TICKS_FULL_TIME);
     void run_sandbox_demo(MatchState& state, MatchRecording& recording, uint32_t ticks = 1000);
 
     [[nodiscard]] const std::vector<MatchEvent>& recent_events() const { return recent_events_; }
@@ -23,4 +29,3 @@ private:
 };
 
 } // namespace fm
-

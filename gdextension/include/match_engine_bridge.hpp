@@ -1,6 +1,7 @@
 #pragma once
 
 #include <godot_cpp/classes/node.hpp>
+#include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/string.hpp>
@@ -39,6 +40,8 @@ public:
     // Low-level buffer access for Godot visualization
     [[nodiscard]] PackedFloat32Array get_frame_data(int tick) const;
     [[nodiscard]] Dictionary get_match_metadata() const;
+    [[nodiscard]] Dictionary get_tick_hud_state(int tick) const;
+    [[nodiscard]] Array get_match_events() const;
     [[nodiscard]] int get_total_ticks() const;
 
     // Tactical Mutators & Snapshot Rollback API
@@ -47,4 +50,3 @@ public:
 };
 
 } // namespace godot
-

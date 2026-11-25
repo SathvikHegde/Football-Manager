@@ -4,6 +4,7 @@ add_executable(fm_tests
     test_physics.cpp
     test_rollback.cpp
     test_rules.cpp
+    test_match_loop.cpp
 )
 
 target_include_directories(fm_tests PRIVATE
@@ -26,4 +27,3 @@ target_compile_options(fm_tests PRIVATE
 )
 
 add_test(NAME fm_tests COMMAND fm_tests)
-

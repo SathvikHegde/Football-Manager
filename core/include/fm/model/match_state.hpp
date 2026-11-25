@@ -49,7 +49,19 @@ struct MatchState {
     TacticalConfig home_tactics{};
     TacticalConfig away_tactics{};
     RngState rng{};
+
+    // Stage 2: Match flow, transition tracking, and shot-flight state
+    uint8_t kickoff_team{0};
+    int8_t restart_taker_slot{-1};
+    int8_t last_possessing_team{-1};
+    uint32_t possession_change_tick{0};
+    bool shot_active{false};
+    int8_t shot_shooter_slot{-1};
+    Vec2 shot_origin{0.0f, 0.0f};
+    Vec3 shot_target_pos{0.0f, 0.0f, 0.0f};
+    float shot_initial_speed{0.0f};
+    uint16_t stuck_ball_ticks{0};
+    Vec2 last_ball_check_pos{0.0f, 0.0f};
 };
 
 } // namespace fm
-
