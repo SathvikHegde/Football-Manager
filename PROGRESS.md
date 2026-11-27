@@ -1,6 +1,6 @@
 # Football Manager - Build & Stage Progress
 
-- **Current Status:** Stage 4 COMPLETE. (Engine v0.4.0-stage4)
+- **Current Status:** Stage 4.5A COMPLETE. (3D Match Viewer Core; Engine v0.4.0-stage4)
 - **Godot Setup:** Godot 4.7.2 (`C:\Programs\Godot\Godot_v4.7.2-stable_win64_console.exe`).
 - **godot-cpp:** `gdextension/godot-cpp` with `GODOTCPP_USE_STATIC_CPP=OFF` (`/MD`/`/MDd`).
 
@@ -19,10 +19,17 @@ cmd.exe /c "call `"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxi
 .\build\release\cli_harness\fm_sim_cli.exe --matches 200 --threads 8 --home-rating 16 --away-rating 12 --out build\release\report_lead4.csv --validate
 .\build\release\cli_harness\fm_sim_cli.exe 3735928559
 
-# Run Godot client verification (headless) / Launch 2D Match Viewer (interactive)
+# Run Godot client verification (headless) / Launch 3D & 2D Match Viewer (interactive)
 & "C:\Programs\Godot\Godot_v4.7.2-stable_win64_console.exe" --headless --path godot_client --quit-after 30
 & "C:\Programs\Godot\Godot_v4.7.2-stable_win64_console.exe" --path godot_client
 ```
+
+### Stage 4.5A Summary
+- **Shared Playback Controller & Runtime 2D/3D Toggle (`godot_client/`):** Extracted match simulation lifecycle, frame interpolation with `> 6.0 m` teleport-snap guard, speed selection (`1x`/`2x`/`4x`/`8x`/`16x`), timeline scrubbing/stepping, and tactical rollback coordination into `MatchPlaybackController` (`godot_client/scripts/match_playback_controller.gd`), driving both `ViewContainer2D` (`pitch_view.tscn` / `pitch_renderer.gd`) and `ViewContainer3D` (`pitch_3d.tscn` / `pitch_renderer_3d.gd`) in `main.tscn` & `main.gd`.
+- **Procedural Pitch & Goal Net Shaders (`godot_client/shaders/`):** Implemented `pitch_surface.gdshader` on a `125 m × 84 m` `PlaneMesh` (`5.25 m` mowed grass stripes, apron turf, procedural grain, and `0.12 m` anti-aliased FIFA/`fm_core` markings) and translucent `goal_net.gdshader` (`cull_disabled` diamond net grid).
+- **3D Pitch, Goals, Ball & Placeholder Players (`godot_client/scenes/`, `godot_client/scripts/`):** Built `pitch_3d.tscn`, `player_3d.tscn`, and `PitchRenderer3D` (`pitch_renderer_3d.gd`) using 1:1 coordinate parity `(x_sim, z_sim, -y_sim)` and `rotation.y = facing_rad - PI * 0.5`, with `HomeGoal`/`AwayGoal` (`7.32 m × 2.44 m × 2.0 m`), Telstar-paneled rolling `BallMesh` (`r = 0.11 m`), elevation-scaled `BallShadow`, `BallCarrierRing`, and 22 `ModelPivot`-wrapped `Player3D` capsules with facing cones and jersey numbers.
+- **3D Camera Rig & HUD Controls (`godot_client/scripts/camera_rig_3d.gd`):** Added `CameraRig3D` supporting `Broadcast (TV)` (`F1`), `Tactical 3D` (`F2`), `Behind Goal` (`F3`, `±12 m` midfield hysteresis), `Free Orbit` (`F4`, WASD pan / RMB orbit / scroll zoom), and `2D Classic` (`F5`) plus `V` view cycling and `TopBar/ViewButtons`, with exponential damping and instant scrub/rollback snapping.
+- **Verification:** Zero edits to `core/` or `gdextension/`; `ctest --preset windows-release` (`14.82s`) and `ctest --preset windows-debug` (`31.78s`) passed `100%`; Godot headless smoke test (`--headless --path godot_client --quit-after 30`) and headless parity/rollback check exited with code `0` and zero script or shader errors.
 
 ### Stage 4 Summary
 - **Headless Telemetry & Team Rating Contracts (`core/`):** Added `MatchStats` / `TeamMatchStats` and `MatchSimulator::simulate_headless(...)` in `fm/engine/match_stats.hpp` & `fm/engine/match_simulator.hpp` for zero-snapshot-allocation 90-minute match telemetry, plus `make_role_attributes` and `apply_team_rating` in `fm/model/team.hpp` (`core/src/model/team.cpp`).
