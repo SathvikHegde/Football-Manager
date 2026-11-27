@@ -1,0 +1,374 @@
+[gd_scene load_steps=31 format=3]
+
+[ext_resource type="Script" path="res://scripts/pitch_renderer_3d.gd" id="1_pitch3d"]
+[ext_resource type="Shader" path="res://shaders/pitch_surface.gdshader" id="2_pitch_shader"]
+[ext_resource type="Shader" path="res://shaders/goal_net.gdshader" id="3_net_shader"]
+[ext_resource type="Script" path="res://scripts/camera_rig_3d.gd" id="4_cam_rig"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_1"]
+sky_top_color = Color(0.22, 0.48, 0.78, 1)
+sky_horizon_color = Color(0.65, 0.77, 0.88, 1)
+ground_bottom_color = Color(0.11, 0.14, 0.16, 1)
+ground_horizon_color = Color(0.32, 0.38, 0.42, 1)
+
+[sub_resource type="Sky" id="Sky_1"]
+sky_material = SubResource("ProceduralSkyMaterial_1")
+
+[sub_resource type="Environment" id="Environment_1"]
+background_mode = 2
+sky = SubResource("Sky_1")
+ambient_light_source = 3
+ambient_light_energy = 0.55
+tonemap_mode = 3
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_surround"]
+albedo_color = Color(0.11, 0.13, 0.16, 1)
+roughness = 0.95
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_surround"]
+material = SubResource("StandardMaterial3D_surround")
+size = Vector2(240, 180)
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_pitch"]
+shader = ExtResource("2_pitch_shader")
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_pitch"]
+material = SubResource("ShaderMaterial_pitch")
+size = Vector2(125, 84)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_goalpost"]
+albedo_color = Color(0.96, 0.97, 0.98, 1)
+roughness = 0.35
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_post"]
+material = SubResource("StandardMaterial3D_goalpost")
+top_radius = 0.06
+bottom_radius = 0.06
+height = 2.44
+radial_segments = 16
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_crossbar"]
+material = SubResource("StandardMaterial3D_goalpost")
+top_radius = 0.06
+bottom_radius = 0.06
+height = 7.44
+radial_segments = 16
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_stanchion_vert"]
+material = SubResource("StandardMaterial3D_goalpost")
+top_radius = 0.035
+bottom_radius = 0.035
+height = 2.44
+radial_segments = 12
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_stanchion_wide"]
+material = SubResource("StandardMaterial3D_goalpost")
+top_radius = 0.035
+bottom_radius = 0.035
+height = 7.39
+radial_segments = 12
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_stanchion_depth"]
+material = SubResource("StandardMaterial3D_goalpost")
+top_radius = 0.035
+bottom_radius = 0.035
+height = 2.0
+radial_segments = 12
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_net"]
+shader = ExtResource("3_net_shader")
+
+[sub_resource type="QuadMesh" id="QuadMesh_net_back"]
+material = SubResource("ShaderMaterial_net")
+size = Vector2(7.32, 2.44)
+
+[sub_resource type="QuadMesh" id="QuadMesh_net_top"]
+material = SubResource("ShaderMaterial_net")
+size = Vector2(2, 7.32)
+
+[sub_resource type="QuadMesh" id="QuadMesh_net_side"]
+material = SubResource("ShaderMaterial_net")
+size = Vector2(2, 2.44)
+
+[sub_resource type="Shader" id="Shader_ball"]
+code = "shader_type spatial;
+render_mode cull_back;
+
+varying vec3 v_local;
+
+void vertex() {
+	v_local = normalize(VERTEX);
+}
+
+void fragment() {
+	vec3 p = normalize(v_local);
+	float phi = 1.61803399;
+	float inv_len = inversesqrt(1.0 + phi * phi);
+	float a = inv_len;
+	float b = phi * inv_len;
+
+	float max_d = -1.0;
+	max_d = max(max_d, dot(p, vec3(0.0,  a,  b)));
+	max_d = max(max_d, dot(p, vec3(0.0, -a,  b)));
+	max_d = max(max_d, dot(p, vec3(0.0,  a, -b)));
+	max_d = max(max_d, dot(p, vec3(0.0, -a, -b)));
+	max_d = max(max_d, dot(p, vec3( a,  b, 0.0)));
+	max_d = max(max_d, dot(p, vec3(-a,  b, 0.0)));
+	max_d = max(max_d, dot(p, vec3( a, -b, 0.0)));
+	max_d = max(max_d, dot(p, vec3(-a, -b, 0.0)));
+	max_d = max(max_d, dot(p, vec3( b, 0.0,  a)));
+	max_d = max(max_d, dot(p, vec3(-b, 0.0,  a)));
+	max_d = max(max_d, dot(p, vec3( b, 0.0, -a)));
+	max_d = max(max_d, dot(p, vec3(-b, 0.0, -a)));
+
+	float fw = max(fwidth(max_d), 0.005);
+	float pentagon = smoothstep(0.915 - fw, 0.915 + fw, max_d);
+	vec3 white_panel = vec3(0.92, 0.92, 0.89);
+	vec3 black_panel = vec3(0.02, 0.02, 0.03);
+	ALBEDO = mix(white_panel, black_panel, pentagon);
+	ROUGHNESS = mix(0.35, 0.45, pentagon);
+}
+"
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_ball"]
+shader = SubResource("Shader_ball")
+
+[sub_resource type="SphereMesh" id="SphereMesh_ball"]
+material = SubResource("ShaderMaterial_ball")
+radius = 0.11
+height = 0.22
+radial_segments = 24
+rings = 16
+
+[sub_resource type="Shader" id="Shader_ball_shadow"]
+code = "shader_type spatial;
+render_mode unshaded, blend_mix, depth_draw_never, cull_disabled;
+
+uniform float shadow_alpha = 0.65;
+
+void fragment() {
+	vec2 centered = UV * 2.0 - 1.0;
+	float r = length(centered);
+	float falloff = 1.0 - smoothstep(0.15, 1.0, r);
+	ALBEDO = vec3(0.0, 0.0, 0.0);
+	ALPHA = falloff * shadow_alpha;
+}
+"
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_ball_shadow"]
+shader = SubResource("Shader_ball_shadow")
+shader_parameter/shadow_alpha = 0.65
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_ball_shadow"]
+material = SubResource("ShaderMaterial_ball_shadow")
+size = Vector2(1, 1)
+
+[sub_resource type="Shader" id="Shader_carrier_ring"]
+code = "shader_type spatial;
+render_mode unshaded, blend_mix, depth_draw_never, cull_disabled;
+
+void fragment() {
+	vec2 centered = UV * 2.0 - 1.0;
+	float r = length(centered);
+	float d = abs(r - 0.78);
+	float aa = max(fwidth(d), 0.02);
+	float ring = 1.0 - smoothstep(0.09 - aa, 0.09 + aa, d);
+	ALBEDO = vec3(1.0, 0.75, 0.12);
+	ALPHA = ring * 0.9;
+}
+"
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_carrier_ring"]
+shader = SubResource("Shader_carrier_ring")
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_carrier_ring"]
+material = SubResource("ShaderMaterial_carrier_ring")
+size = Vector2(1.45, 1.45)
+
+[node name="Pitch3D" type="Node3D"]
+script = ExtResource("1_pitch3d")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_1")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.848048, -0.417582, 0.32625, 0, 0.615661, 0.788011, -0.529919, -0.668271, 0.52211, 0, 35, 0)
+light_color = Color(1, 0.98, 0.94, 1)
+light_energy = 1.25
+shadow_enabled = true
+shadow_bias = 0.05
+directional_shadow_mode = 2
+directional_shadow_max_distance = 160.0
+
+[node name="SurroundGround" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.05, 0)
+cast_shadow = 0
+mesh = SubResource("PlaneMesh_surround")
+
+[node name="PitchSurface" type="MeshInstance3D" parent="."]
+cast_shadow = 0
+mesh = SubResource("PlaneMesh_pitch")
+
+[node name="Goals" type="Node3D" parent="."]
+
+[node name="HomeGoal" type="Node3D" parent="Goals"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -52.5, 0, 0)
+
+[node name="LeftPost" type="MeshInstance3D" parent="Goals/HomeGoal"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.22, -3.66)
+mesh = SubResource("CylinderMesh_post")
+
+[node name="RightPost" type="MeshInstance3D" parent="Goals/HomeGoal"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.22, 3.66)
+mesh = SubResource("CylinderMesh_post")
+
+[node name="Crossbar" type="MeshInstance3D" parent="Goals/HomeGoal"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 0, 2.44, 0)
+mesh = SubResource("CylinderMesh_crossbar")
+
+[node name="BackPostL" type="MeshInstance3D" parent="Goals/HomeGoal"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 1.22, -3.66)
+mesh = SubResource("CylinderMesh_stanchion_vert")
+
+[node name="BackPostR" type="MeshInstance3D" parent="Goals/HomeGoal"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 1.22, 3.66)
+mesh = SubResource("CylinderMesh_stanchion_vert")
+
+[node name="BackCrossbar" type="MeshInstance3D" parent="Goals/HomeGoal"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -2, 2.44, 0)
+mesh = SubResource("CylinderMesh_stanchion_wide")
+
+[node name="TopBarL" type="MeshInstance3D" parent="Goals/HomeGoal"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, -1, 2.44, -3.66)
+mesh = SubResource("CylinderMesh_stanchion_depth")
+
+[node name="TopBarR" type="MeshInstance3D" parent="Goals/HomeGoal"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, -1, 2.44, 3.66)
+mesh = SubResource("CylinderMesh_stanchion_depth")
+
+[node name="GroundBack" type="MeshInstance3D" parent="Goals/HomeGoal"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -2, 0.035, 0)
+mesh = SubResource("CylinderMesh_stanchion_wide")
+
+[node name="GroundL" type="MeshInstance3D" parent="Goals/HomeGoal"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, -1, 0.035, -3.66)
+mesh = SubResource("CylinderMesh_stanchion_depth")
+
+[node name="GroundR" type="MeshInstance3D" parent="Goals/HomeGoal"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, -1, 0.035, 3.66)
+mesh = SubResource("CylinderMesh_stanchion_depth")
+
+[node name="BackNet" type="MeshInstance3D" parent="Goals/HomeGoal"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -2, 1.22, 0)
+cast_shadow = 0
+mesh = SubResource("QuadMesh_net_back")
+
+[node name="TopNet" type="MeshInstance3D" parent="Goals/HomeGoal"]
+transform = Transform3D(1, 0, 0, 0, 0, 1, 0, -1, 0, -1, 2.44, 0)
+cast_shadow = 0
+mesh = SubResource("QuadMesh_net_top")
+
+[node name="SideNetL" type="MeshInstance3D" parent="Goals/HomeGoal"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 1.22, -3.66)
+cast_shadow = 0
+mesh = SubResource("QuadMesh_net_side")
+
+[node name="SideNetR" type="MeshInstance3D" parent="Goals/HomeGoal"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 1.22, 3.66)
+cast_shadow = 0
+mesh = SubResource("QuadMesh_net_side")
+
+[node name="AwayGoal" type="Node3D" parent="Goals"]
+transform = Transform3D(-1, 0, 0, 0, 1, 0, 0, 0, -1, 52.5, 0, 0)
+
+[node name="LeftPost" type="MeshInstance3D" parent="Goals/AwayGoal"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.22, -3.66)
+mesh = SubResource("CylinderMesh_post")
+
+[node name="RightPost" type="MeshInstance3D" parent="Goals/AwayGoal"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.22, 3.66)
+mesh = SubResource("CylinderMesh_post")
+
+[node name="Crossbar" type="MeshInstance3D" parent="Goals/AwayGoal"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 0, 2.44, 0)
+mesh = SubResource("CylinderMesh_crossbar")
+
+[node name="BackPostL" type="MeshInstance3D" parent="Goals/AwayGoal"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 1.22, -3.66)
+mesh = SubResource("CylinderMesh_stanchion_vert")
+
+[node name="BackPostR" type="MeshInstance3D" parent="Goals/AwayGoal"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2, 1.22, 3.66)
+mesh = SubResource("CylinderMesh_stanchion_vert")
+
+[node name="BackCrossbar" type="MeshInstance3D" parent="Goals/AwayGoal"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -2, 2.44, 0)
+mesh = SubResource("CylinderMesh_stanchion_wide")
+
+[node name="TopBarL" type="MeshInstance3D" parent="Goals/AwayGoal"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, -1, 2.44, -3.66)
+mesh = SubResource("CylinderMesh_stanchion_depth")
+
+[node name="TopBarR" type="MeshInstance3D" parent="Goals/AwayGoal"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, -1, 2.44, 3.66)
+mesh = SubResource("CylinderMesh_stanchion_depth")
+
+[node name="GroundBack" type="MeshInstance3D" parent="Goals/AwayGoal"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, -2, 0.035, 0)
+mesh = SubResource("CylinderMesh_stanchion_wide")
+
+[node name="GroundL" type="MeshInstance3D" parent="Goals/AwayGoal"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, -1, 0.035, -3.66)
+mesh = SubResource("CylinderMesh_stanchion_depth")
+
+[node name="GroundR" type="MeshInstance3D" parent="Goals/AwayGoal"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, -1, 0.035, 3.66)
+mesh = SubResource("CylinderMesh_stanchion_depth")
+
+[node name="BackNet" type="MeshInstance3D" parent="Goals/AwayGoal"]
+transform = Transform3D(0, 0, 1, 0, 1, 0, -1, 0, 0, -2, 1.22, 0)
+cast_shadow = 0
+mesh = SubResource("QuadMesh_net_back")
+
+[node name="TopNet" type="MeshInstance3D" parent="Goals/AwayGoal"]
+transform = Transform3D(1, 0, 0, 0, 0, 1, 0, -1, 0, -1, 2.44, 0)
+cast_shadow = 0
+mesh = SubResource("QuadMesh_net_top")
+
+[node name="SideNetL" type="MeshInstance3D" parent="Goals/AwayGoal"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 1.22, -3.66)
+cast_shadow = 0
+mesh = SubResource("QuadMesh_net_side")
+
+[node name="SideNetR" type="MeshInstance3D" parent="Goals/AwayGoal"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 1.22, 3.66)
+cast_shadow = 0
+mesh = SubResource("QuadMesh_net_side")
+
+[node name="BallRoot" type="Node3D" parent="."]
+
+[node name="BallMesh" type="MeshInstance3D" parent="BallRoot"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.11, 0)
+mesh = SubResource("SphereMesh_ball")
+
+[node name="BallShadow" type="MeshInstance3D" parent="BallRoot"]
+transform = Transform3D(0.38, 0, 0, 0, 1, 0, 0, 0, 0.38, 0, 0.015, 0)
+cast_shadow = 0
+mesh = SubResource("PlaneMesh_ball_shadow")
+
+[node name="PlayersContainer" type="Node3D" parent="."]
+
+[node name="BallCarrierRing" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.02, 0)
+visible = false
+cast_shadow = 0
+mesh = SubResource("PlaneMesh_carrier_ring")
+
+[node name="CameraRig3D" type="Node3D" parent="."]
+script = ExtResource("4_cam_rig")
+
+[node name="Camera3D" type="Camera3D" parent="CameraRig3D"]
+transform = Transform3D(1, 0, 0, 0, 0.866025, 0.5, 0, -0.5, 0.866025, 0, 22, 38)
+current = true
+fov = 38.0
+far = 400.0
